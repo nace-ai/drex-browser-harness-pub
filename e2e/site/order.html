@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Northwind Eats</title>
+<style>
+body{font:15px/1.5 system-ui;margin:0;background:#fafafa;color:#191919}
+header{display:flex;align-items:center;gap:14px;padding:12px 24px;background:#fff;border-bottom:1px solid #e6e6e6}
+header .logo{font-weight:800;color:#eb1700;font-size:20px}
+header button{font:inherit;border:1px solid #ddd;background:#fff;border-radius:20px;padding:6px 14px;cursor:pointer}
+header input{flex:1;max-width:360px;padding:8px 14px;border-radius:20px;border:1px solid #ddd;font:inherit}
+main{max-width:900px;margin:24px auto;padding:0 24px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:#fff;border:1px solid #eee;border-radius:10px;padding:16px;text-decoration:none;color:inherit;display:block}
+.card b{display:block;font-size:16px}
+.back{position:fixed;inset:0;background:#0005;display:flex;align-items:flex-start;justify-content:center;padding-top:80px}
+.dlg{background:#fff;border-radius:12px;width:420px;padding:20px;position:relative}
+.dlg label{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eee}
+.dlg .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.dlg button{font:inherit;padding:8px 16px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer}
+.dlg .x{position:absolute;top:12px;right:12px;border:0;font-size:18px}
+</style></head>
+<body>
+<header><span class="logo">Northwind Eats</span><button id="addr">10 Cambridge Ave</button><input placeholder="Search Northwind Eats" aria-label="Search"><button id="cart">Cart (0)</button></header>
+<main id="main"></main>
+<script>
+// The DoorDash trap: the address picker opens from the header with the address already chosen; scheduling is only
+// offered at checkout, so a step that asks for "address, then schedule" can't finish on this page.
+const R = [["Chicken Hut", "Fried chicken, wings · 4.6 ★ · $$"], ["Taco Yurt", "Tacos · 4.4 ★ · $"], ["Green Bowl", "Salads · 4.7 ★ · $$"],
+  ["Golden Wings", "Wings, sauces · 4.5 ★ · $$"], ["Pho Almaty", "Vietnamese · 4.3 ★ · $$"], ["Burger Yurt", "Burgers · 4.2 ★ · $"]];
+document.getElementById("main").innerHTML = `<h2>Restaurants near 10 Cambridge Ave</h2><div class="grid">${R.map(([n, d]) => `<a class="card" href="#/r/${encodeURIComponent(n)}"><b>${n}</b>${d}</a>`).join("")}</div>`;
+document.getElementById("addr").onclick = () => {
+  const d = document.createElement("div");
+  d.className = "back";
+  d.innerHTML = `<div class="dlg" role="dialog" aria-label="Choose an address"><h3 style="margin:0 0 8px">Choose an address</h3>
+    <label><input type="radio" name="a" checked> 10 Cambridge Ave, Cambridge, MA</label>
+    <label><input type="radio" name="a"> 12 Market St, Boston, MA</label>
+    <div class="row"><button id="save">Save</button></div><button class="x" aria-label="Close">✕</button></div>`;
+  document.body.append(d);
+  d.querySelector("#save").onclick = () => d.remove();
+  d.querySelector(".x").onclick = () => d.remove();
+};
+document.getElementById("cart").onclick = () => { document.getElementById("cart").textContent = "Cart (0) is empty"; };
+</script></body></html>

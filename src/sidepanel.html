@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drex Agent</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span class="name"><span class="title">Drex Agent</span><span class="by">by Nace.AI</span></span>
+      <button id="gear" class="btn ghost icon" type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+          />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
+    </header>
+
+    <section id="settings" class="panel" hidden>
+      <div class="field">
+        <label for="drexKey">Drex API key</label
+        ><input id="drexKey" type="password" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label for="llmKey"
+          >LLM API key <small id="llmKeyKind">Anthropic, OpenAI, Google Gemini, OpenRouter or Fireworks</small></label
+        ><input id="llmKey" type="password" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label for="model">Model for planning and help</label
+        ><select id="model"></select>
+      </div>
+      <label class="check"
+        ><input id="planning" type="checkbox" /><span
+          >Plan with the LLM first<small
+            >Off: no plan. Drex starts on your task right away, as you wrote it, and makes every move. When it types
+            into a field, the LLM writes the text. The LLM never replans.</small
+          ></span
+        ></label
+      >
+      <label class="check"
+        ><input id="background" type="checkbox" /><span
+          >Work in a background tab<small>Keep browsing while Drex works. The live view shows its screen.</small></span
+        ></label
+      >
+      <label class="check"
+        ><input id="cursor" type="checkbox" /><span
+          >Show Drex's cursor<small
+            >A "Drex" cursor glides to each click in the agent's tab, and the live view marks the target.</small
+          ></span
+        ></label
+      >
+      <label class="check"
+        ><input id="approvals" type="checkbox" /><span
+          >Ask before risky actions<small
+            >Off: Drex clicks Send, Pay, Place order, Delete and bulk actions without asking. CAPTCHAs and logins still
+            wait for you.</small
+          ></span
+        ></label
+      >
+      <label class="check"
+        ><input id="notify" type="checkbox" /><span
+          >Notify me when Drex needs me<small
+            >A Chrome notification for each approval or hand-over, so you can work in other tabs.</small
+          ></span
+        ></label
+      >
+      <label class="check"
+        ><input id="bridge" type="checkbox" /><span
+          >Let coding agents use Drex<small
+            >Claude Code, Cursor, Codex or any agent with the Drex MCP server (<code>mcp/server.mjs</code>) can give
+            Drex tasks in this browser, with or without this panel open. The link is paired: Drex only takes tasks from
+            an MCP server added with your setup command. <span id="bridgeState" class="bridge-state">Off.</span></small
+          ></span
+        ></label
+      >
+      <div id="pairing" class="pairing" hidden>
+        <p class="hint">
+          Add the Drex MCP server to your coding agent. The setup carries your pairing code, so keep it to yourself.
+        </p>
+        <div class="field">
+          <label for="agent">Coding agent</label
+          ><select id="agent"></select>
+        </div>
+        <p id="setupHow" class="hint"></p>
+        <code id="setupCmd" class="setup"></code>
+        <div class="actions">
+          <button id="newCode" class="btn ghost sm" type="button">New code</button
+          ><a id="addToCursor" class="btn outline sm" hidden>Add to Cursor</a
+          ><button id="copySetup" class="btn outline sm" type="button">Copy</button>
+        </div>
+      </div>
+      <p class="hint">
+        Keys stay in this browser profile. Drex Max runs on console.nace.ai. Paste a key from any of the LLM providers:
+        the models it can use show up below.
+      </p>
+      <p id="keyCheck" class="hint key-check" hidden></p>
+      <div class="actions">
+        <button id="checkKeys" class="btn outline" type="button">Check keys</button
+        ><button id="saveSettings" class="btn primary" type="button">Save</button>
+      </div>
+    </section>
+
+    <form id="taskForm" class="compose">
+      <label for="task" class="label">Task</label>
+      <textarea
+        id="task"
+        rows="4"
+        placeholder="Describe what Drex should do, e.g. find today's top 5 Hacker News stories and put them in a new Google Doc."
+      ></textarea>
+      <div class="actions">
+        <span class="kbd" id="kbd">⌘ Enter</span>
+        <button id="stop" class="btn outline" type="button" hidden>Stop</button>
+        <button id="run" class="btn primary" type="submit">Run</button>
+      </div>
+    </form>
+
+    <section class="panel meter" aria-live="polite">
+      <div class="stat-total">
+        <span class="label">Cost</span>
+        <span id="totalUsd" class="num big">$0.0000</span>
+      </div>
+      <dl class="stats">
+        <div>
+          <dt>Drex Max</dt>
+          <dd><span id="drexMoves">0</span> moves<span id="drexItems"></span></dd>
+          <dd class="num" id="drexUsd">$0.0000</dd>
+        </div>
+        <div>
+          <dt id="llmName">LLM</dt>
+          <dd><span id="llmCalls">0</span> calls</dd>
+          <dd class="num" id="llmUsd">$0.0000</dd>
+        </div>
+        <div>
+          <dt>Time</dt>
+          <dd id="share">–</dd>
+          <dd class="num" id="secs">0.0 s</dd>
+        </div>
+      </dl>
+      <p class="status" id="status"><span class="dot"></span><span id="statusText">Ready</span></p>
+    </section>
+
+    <section id="asks"></section>
+
+    <section id="live" class="block" hidden>
+      <div class="block-head">
+        <h2>Live view</h2>
+        <button id="showTab" class="btn ghost sm" type="button">Show tab</button>
+      </div>
+      <div class="shot-wrap">
+        <img id="liveImg" class="shot" alt="The agent's tab as Drex last saw it" />
+        <svg id="liveCursor" class="live-cursor" viewBox="0 0 20 22" width="16" height="18" aria-hidden="true" hidden>
+          <path d="M2 1.5v17l4.6-4.2 3 6.6 3-1.4-3-6.4h6.3z" />
+        </svg>
+      </div>
+      <p class="url" id="liveUrl"></p>
+    </section>
+
+    <section id="answer" class="block" hidden>
+      <div class="block-head">
+        <h2>Result</h2>
+        <button id="copy" class="btn ghost sm" type="button">Copy</button>
+      </div>
+      <pre id="answerText" class="result"></pre>
+    </section>
+
+    <section id="planBox" class="block" hidden>
+      <div class="block-head"><h2>Plan</h2></div>
+      <ol id="plan" class="plan"></ol>
+    </section>
+
+    <section id="logBox" class="block" hidden>
+      <div class="block-head"><h2>Activity</h2></div>
+      <ol id="log" class="log"></ol>
+    </section>
+
+    <footer><button id="download" class="btn ghost sm" type="button" disabled>Download run log</button></footer>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

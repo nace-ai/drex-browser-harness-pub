@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Lotus House</title>
+<style>body{font:15px/1.5 system-ui;margin:0;background:#fafafa}header{position:sticky;top:0;display:flex;justify-content:space-between;align-items:center;padding:12px 24px;background:#fff;border-bottom:1px solid #eee;z-index:2}
+main{max-width:860px;margin:0 auto;padding:0 20px}.hero{height:520px;display:flex;align-items:end;padding-bottom:20px}.hero h1{font-size:40px}
+.reviews{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:420px}.rev{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px}
+.rev button.dish{border:0;background:none;padding:0;font:inherit;text-decoration:underline;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:300px}.card{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px;position:relative;min-height:84px}
+.card .open{border:0;background:none;padding:0;font:inherit;text-align:left;cursor:pointer}.add{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;border:0;background:#191919;color:#fff;cursor:pointer}
+.modal{position:fixed;inset:0;background:#0005;display:flex;align-items:center;justify-content:center;z-index:5}.modal>div{background:#fff;border-radius:12px;padding:20px;width:420px}
+#toast{position:fixed;left:50%;top:80px;transform:translateX(-50%);background:#191919;color:#fff;padding:8px 16px;border-radius:8px;z-index:6}
+#drawer{position:fixed;top:0;right:0;width:320px;height:100%;background:#fff;box-shadow:-4px 0 20px #0002;padding:20px;z-index:4}</style></head>
+<body><header><b>Lotus House</b><button id="cartBtn">Cart</button></header>
+<main><div class="hero"><h1>Lotus House · Sichuan &amp; Cantonese</h1></div>
+<h2>Reviews</h2><div class="reviews" id="reviews"></div>
+<h2>Menu</h2><div class="grid" id="menu"></div></main>
+<div id="toast" role="status" hidden></div>
+<aside id="drawer" role="dialog" aria-label="Your cart" hidden><h3>Your cart</h3><ul id="lines"></ul><button id="closeCart">Close</button></aside>
+<script>
+// The DoorDash trap, rebuilt: dish names inside customer reviews are links that open the review, while the dishes
+// themselves sit further down; adding shows an "Item Added!" notice.
+if (new URLSearchParams(location.search).has("tall")) document.querySelector(".hero").style.height = "1100px"; // reviews start off screen
+const MENU = [["Kung Pao Chicken", 14.25], ["Mapo Tofu", 12.0], ["Wonton Soup", 11.0], ["Beef Chow Fun", 16.5], ["Coca-Cola", 3.0], ["Jasmine Tea", 2.5]];
+const REVIEWS = [["Dana", "The <D>Kung Pao Chicken</D> is the best in town, real Sichuan heat."], ["Omar", "Came for the <D>Wonton Soup</D>, stayed for the dumplings."], ["Mei", "<D>Mapo Tofu</D> was a bit salty but still great."]];
+const cart = JSON.parse(localStorage.getItem("lotus-cart") || "[]");
+const btn = document.getElementById("cartBtn");
+const save = () => { localStorage.setItem("lotus-cart", JSON.stringify(cart)); btn.textContent = `Cart (${cart.length})`; btn.setAttribute("aria-label", `${cart.length} items, open cart`); };
+document.getElementById("reviews").innerHTML = REVIEWS.map(([who, t]) => `<div class="rev"><b>${who}</b><p>${t.replace(/<D>(.*?)<\/D>/, '<button class="dish">$1</button>')}</p></div>`).join("");
+document.getElementById("menu").innerHTML = MENU.map(([n, p]) => `<div class="card"><button class="open" data-n="${n}" data-p="${p}">${n}<br>$${p.toFixed(2)}</button><button class="add" aria-label="Add item to cart" data-n="${n}" data-p="${p}">+</button></div>`).join("");
+const modal = (label, html) => { const m = document.createElement("div"); m.className = "modal"; m.innerHTML = `<div role="dialog" aria-label="${label}">${html}<p><button class="x">Close</button></p></div>`; document.body.append(m); m.querySelector(".x").onclick = () => m.remove(); return m; };
+const add = (n, p) => { cart.push([n, p]); save(); const t = document.getElementById("toast"); t.textContent = "Item Added!"; t.hidden = false; clearTimeout(add.t); add.t = setTimeout(() => (t.hidden = true), 2500); };
+document.querySelectorAll(".rev .dish").forEach((b) => b.onclick = () => modal("Review details", `<h3>Review by ${b.closest(".rev").querySelector("b").textContent}</h3><p>${b.closest("p").textContent}</p>`));
+document.querySelectorAll(".card .open").forEach((b) => b.onclick = () => { const m = modal(b.dataset.n, `<h3>${b.dataset.n}</h3><p>$${(+b.dataset.p).toFixed(2)}</p><button class="go">Add to cart - $${(+b.dataset.p).toFixed(2)}</button>`); m.querySelector(".go").onclick = () => { add(b.dataset.n, +b.dataset.p); m.remove(); }; });
+document.querySelectorAll(".card .add").forEach((b) => b.onclick = () => add(b.dataset.n, +b.dataset.p));
+btn.onclick = () => { document.getElementById("lines").innerHTML = cart.map(([n, p]) => `<li>${n} $${p.toFixed(2)}</li>`).join("") || "<li>Empty</li>"; document.getElementById("drawer").hidden = false; };
+document.getElementById("closeCart").onclick = () => (document.getElementById("drawer").hidden = true);
+save();
+</script></body></html>

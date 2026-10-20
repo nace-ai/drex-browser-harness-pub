@@ -1,0 +1,38 @@
+# Dependencies and builds
+node_modules/
+dist/
+release/
+runner/extension/
+runner/build-info.json
+.worker-releases/
+.worktrees/
+*.tgz
+
+# Keys and local settings: never commit these
+.env
+.env.*
+!.env.example
+keys.local.json
+*.local.json
+
+# Run outputs, traces and screenshots
+runs/
+out/
+eval/out/
+eval/.cache/
+*.har
+screenshots/
+frames/
+final.png
+final.jpg
+*.screenshot.png
+
+# Python helpers
+__pycache__/
+*.pyc
+.venv/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

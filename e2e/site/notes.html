@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Notes</title>
+<style>
+body{font:15px/1.5 system-ui;margin:0;background:#f4f4f2}
+.bar{display:flex;gap:10px;align-items:center;padding:12px 24px;background:#fff;border-bottom:1px solid #ddd}
+.bar input{font:600 18px system-ui;border:1px solid transparent;padding:4px 6px;width:360px}
+.bar input:hover,.bar input:focus{border-color:#aaa}
+.bar button{margin-left:auto;padding:6px 14px}
+.page{max-width:720px;margin:24px auto;background:#fff;min-height:600px;padding:48px 64px;box-shadow:0 1px 3px #0002}
+#body{outline:none;min-height:500px;white-space:pre-wrap}
+#saved{color:#3d7a4a}
+</style></head>
+<body>
+<div class="bar"><input id="title" aria-label="Document title" value="Untitled note"><span id="saved"></span><button id="save">Save</button></div>
+<div class="page"><div id="body" contenteditable="true" role="textbox" aria-label="Note body" aria-multiline="true"></div></div>
+<script>
+const b = document.getElementById("body");
+b.focus();
+document.getElementById("save").onclick = () => {
+  localStorage.setItem("note", JSON.stringify({ title: document.getElementById("title").value, body: b.innerText }));
+  document.getElementById("saved").textContent = "Saved";
+};
+</script>
+</body></html>

@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest a feature, a site or task to support, or a change to the docs.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: The task or workflow, and where Drex Browser falls short today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: The behavior, option or tool you have in mind.
+    validations:
+      required: false
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - Local runner (CLI or MCP)
+        - Chrome extension
+        - Docs
+        - Not sure
+    validations:
+      required: false

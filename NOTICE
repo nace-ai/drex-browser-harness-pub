@@ -1,0 +1,13 @@
+Drex Browser
+Copyright (c) 2026 Nace AI. Licensed under the MIT License (see LICENSE).
+
+Parts of this project are based on browser-use/browser-harness
+(https://github.com/browser-use/browser-harness), licensed under the MIT
+License. Its copyright notice, license text and the upstream commit this project
+builds on are kept in third_party/ and ship with every copy or build of this
+software, including the Chrome extension package.
+
+The Inter and Geist Mono fonts are licensed under the SIL Open Font License 1.1.
+
+"Nace", "Drex" and the Nace logo are names and marks of Nace AI. The MIT License
+covers the code, not the right to use these names or the logo for other products.

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/nace-ai/drex-browser-harness-pub/blob/main/SECURITY.md
+    about: Please report vulnerabilities privately, as described in SECURITY.md, not in a public issue.

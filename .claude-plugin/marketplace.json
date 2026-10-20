@@ -1,0 +1,11 @@
+{
+  "name": "drex-browser",
+  "owner": { "name": "Nace.AI" },
+  "plugins": [
+    {
+      "name": "nace-browser",
+      "source": "./plugins/nace-browser",
+      "description": "The Drex browser agent as an MCP server (browser_task, browser_login, browser_profiles), with a skill for when to use it."
+    }
+  ]
+}

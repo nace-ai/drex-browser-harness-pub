@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "nace-browser": {
+      "command": "nace-browser",
+      "args": ["mcp"],
+      "env": {
+        "DREX_API_KEY": "${DREX_API_KEY:-}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
+      }
+    }
+  }
+}
