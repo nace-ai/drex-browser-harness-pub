@@ -1,6 +1,7 @@
-// Renders the README's images into docs/assets/ from docs/assets/src/benchmarks.json, in the Drex console's look (warm
-// monochrome, Inter and Geist Mono, square corners, 1 px hairlines; see src/sidepanel.css). Run it after the numbers
-// change: node scripts/readme-assets.mjs. It needs Playwright's Chromium once: node runner/bin/nace-browser.mjs install.
+// Renders the README's benchmark and how-it-works images into docs/assets/ from docs/assets/src/benchmarks.json, in
+// the Drex console's look (warm monochrome, Inter and Geist Mono, square corners, 1 px hairlines; see
+// src/sidepanel.css). Run it after the numbers change: node scripts/readme-assets.mjs. It needs Playwright's Chromium
+// once: node runner/bin/nace-browser.mjs install.
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
@@ -13,11 +14,6 @@ const fonts = {
   inter: await dataUrl("src/fonts/InterVariable.woff2", "font/woff2"),
   mono: await dataUrl("src/fonts/GeistMonoVariable.woff2", "font/woff2"),
 };
-const logos = {
-  light: await dataUrl("src/brand/nace-logo-black.svg", "image/svg+xml"),
-  dark: await dataUrl("src/brand/nace-logo-white.svg", "image/svg+xml"),
-};
-
 // The console's stone tokens. Context marks are dark enough to see on the card (the validator's contrast check), and
 // every mark carries its value as text, so nothing is told by colour alone.
 const THEMES = {
@@ -50,7 +46,6 @@ const THEMES = {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const pct = (r) => `${String(Math.round((100 * r.passed) / r.attempts))}%`;
 const usd = (r) => (r.usd === undefined ? "" : `$${r.usd < 0.01 ? r.usd.toFixed(4) : r.usd.toFixed(3)}`);
-const agentLabel = (a) => `${a.name} + ${a.model.replace(/^Claude /, "")}`;
 
 function page(theme, body, css) {
   const t = THEMES[theme];
@@ -69,60 +64,6 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 .label { font-family: "Geist Mono", monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 ${css}
 </style></head><body><div class="frame">${body}</div></body></html>`;
-}
-
-function header(theme, layout) {
-  const bench = data.benchmarks.find((b) => b.id === "webarena-dev");
-  const rows = data.agents
-    .map((a) => ({ a, r: bench.results[a.id] }))
-    .sort((x, y) => Number(x.a.ours === true) - Number(y.a.ours === true) || y.r.usd - x.r.usd);
-  const max = Math.max(...rows.map(({ r }) => r.usd));
-  const width = layout === "wide" ? 200 : 300;
-  const bars = rows
-    .map(
-      ({ a, r }) => `<div class="row${a.ours ? " ours" : ""}">
-  <div class="name">${esc(a.ours ? a.name : agentLabel(a))}</div>
-  <div class="track"><div class="bar" style="width:${String(Math.max(4, Math.round((width * r.usd) / max)))}px"></div>
-  <span class="val mono">${r.usdRange ? "~" : ""}${usd(r)}</span><span class="pass mono">${pct(r)}</span></div>
-</div>`,
-    )
-    .join("");
-  const css = `
-.head { display: grid; align-items: center; }
-.wide { width: 1200px; height: 400px; grid-template-columns: 470px 1fr; gap: 40px; padding: 0 56px 0 64px; }
-.narrow { width: 800px; padding: 56px 56px 48px; }
-.by { display: flex; align-items: center; gap: 10px; }
-.by img { height: 22px; }
-h1 { font-size: 66px; font-weight: 640; letter-spacing: -0.04em; line-height: 1; margin: 22px 0 26px; }
-.tag { font-size: 18px; line-height: 1.65; color: var(--muted); }
-.narrow .chart { margin-top: 44px; }
-.rows { margin: 18px 0 20px; display: grid; gap: 8px; }
-.row { display: grid; grid-template-columns: 196px 1fr; gap: 16px; align-items: center; height: 30px; }
-.name { text-align: right; font-size: 15px; color: var(--muted); white-space: nowrap; }
-.ours .name { color: var(--text); font-weight: 650; }
-.track { display: flex; align-items: center; gap: 10px; }
-.bar { height: 22px; background: var(--context); border-radius: 0 3px 3px 0; }
-.ours .bar { background: var(--ink); }
-.val { font-size: 14px; color: var(--text); }
-.ours .val { font-weight: 650; }
-.pass { font-size: 13px; color: var(--muted); }
-.cap { font-size: 12.5px; line-height: 1.6; color: var(--muted); }`;
-  return page(
-    theme,
-    `<div class="card head ${layout}">
-  <div class="intro">
-    <div class="by"><img src="${logos[theme]}" alt=""><span class="label">nace.ai</span></div>
-    <h1>Drex Browser</h1>
-    <p class="tag mono">Browser tasks in plain words,<br>for a fraction of a cent a move.</p>
-  </div>
-  <div class="chart">
-    <div class="label">Model cost per task · lower is better</div>
-    <div class="rows">${bars}</div>
-    <p class="cap mono">${esc(bench.name)} ${esc(bench.detail)} <br>cost, then pass rate · model API list prices · October 2026</p>
-  </div>
-</div>`,
-    css,
-  );
 }
 
 function benchmarks(theme) {
@@ -260,9 +201,6 @@ p { font-size: 15.5px; line-height: 1.6; color: var(--muted); }
 }
 
 const images = [
-  ["header-light.png", header("light", "wide"), 1200],
-  ["header-dark.png", header("dark", "wide"), 1200],
-  ["header-narrow.png", header("light", "narrow"), 800],
   ["benchmarks-light.png", benchmarks("light"), 1200],
   ["benchmarks-dark.png", benchmarks("dark"), 1200],
   ["how-it-works-light.png", howItWorks("light"), 1200],

@@ -1,8 +1,7 @@
-<picture>
-  <source media="(max-width: 600px)" srcset="docs/assets/header-narrow.png">
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/header-dark.png">
-  <img alt="Drex Browser: browser tasks in plain words, for a fraction of a cent a move. Model cost per task on WebArena-Verified shopping (10 dev tasks), with the pass rate: Codex with gpt-6.1-sol about $0.088 (80%), Claude Code with Sonnet 5.5 $0.074 (90%), Claude Code with Haiku 5.5 $0.0084 (85%), Codex with GPT-6 Luna $0.0054 (70%), Drex Browser $0.0041 (73%)." src="docs/assets/header-light.png">
-</picture>
+<img alt="Drex Browser by nace.ai. Describe a browser task in plain words: Drex Max picks every click, for a fraction of a cent a move. It works as an MCP server, a CLI and a Chrome side panel. Shown: a real run on DoorDash, 16 moves in 66 seconds for $0.006." src="docs/assets/hero.webp">
+
+[Quick start](#quick-start-the-local-runner) · [Chrome extension](#the-chrome-extension) · [Benchmarks](#benchmarks) ·
+[How it works](#how-it-works) · [Safety](#safety) · [Docs](#documentation)
 
 **Describe a browser task in plain words. Drex Browser does it in a real browser and tells you what it found.**
 
@@ -10,15 +9,17 @@
 fraction of a cent a move. A small LLM (Claude Haiku 5.5 by default) plans the task, reads pages and checks the
 result. Coding agents call it as an MCP server or a CLI; people use it from a Chrome side panel.
 
+<img alt="A real run of Drex Browser, sped up 5 times: given the task 'Order me some burger and diet coke on Tuesday morning', it searches DoorDash for burgers, schedules delivery for Tuesday, opens McDonald's, picks a Double Cheeseburger, adds a Diet Coke and adds the order to the cart, in 16 moves, 66 seconds and $0.006 of model cost. It stops at the cart." src="docs/assets/demo.webp">
+
+<sub>A real run, sped up 5×: Drex Browser fills a DoorDash cart from one sentence and stops before checkout. 16 moves,
+66 s, $0.006 of model cost.</sub>
+
 What it is good at: tasks on web pages that need clicking, typing, filling forms or reading behind navigation, such as
 "find the cheapest 1 TB SSD on this shop and return its name and price" or "fill in this registration form with these
 details and tell me the confirmation".
 
 What it will not do: type passwords or payment details, or solve CAPTCHAs. It stops before a click it recognizes as
 risky (pay, send, delete, publish, place an order) unless a person approves it. See [Safety](#safety).
-
-[Quick start](#quick-start-the-local-runner) · [Chrome extension](#the-chrome-extension) · [Benchmarks](#benchmarks) ·
-[How it works](#how-it-works) · [Safety](#safety) · [Docs](#documentation)
 
 ## Ways to use it
 

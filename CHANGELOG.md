@@ -8,7 +8,7 @@ Each entry names the part it changes: the Chrome extension or the local runner (
 
 ### Changed
 
-- README: a header image, a nav line, and Benchmarks and How it works sections. Benchmarks compares pass rate and cost
+- README: a hero image, a nav line, a demo of a real run, and Benchmarks and How it works sections. Benchmarks compares pass rate and cost
   per task with Claude Code and Codex on WebArena-Verified, Online-Mind2Web and MiniWoB++. The images come in light and
   dark and are rendered from `docs/assets/src/benchmarks.json` by `scripts/readme-assets.mjs`.
 - `docs/evals.md`: the results of 20 October 2026, with Online-Mind2Web and the coding agents on every set they ran. The
