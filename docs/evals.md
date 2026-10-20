@@ -34,27 +34,28 @@ excludes the cost of running the browser and, on Online-Mind2Web, the judge.
 
 ## Latest results
 
-Drex Browser 0.1.0, measured on 20 October 2026. The coding agents, Claude Code and Codex, were given the same task
-text, a Chromium window of their own and their usual shell and file tools, and measured on 19 and 20 October 2026 with
-the same tasks, graders and machine.
+A try is one attempt at one task; the pass rate counts every try, and cost and time are per try. Drex Browser 0.1.0
+was measured on 20 October 2026, with more tries per task than the coding agents had. The coding agents, Claude Code
+and Codex, were given the same task text, a Chromium window of their own and their usual shell and file tools, and
+measured on 19 and 20 October 2026 with the same tasks, graders and machine.
 
-| Benchmark | Agent | Solved | Pass rate | $ per attempt | s per attempt |
+| Benchmark | Agent | Tasks × tries | Pass rate | $ per task | s per task |
 | --- | --- | ---: | ---: | ---: | ---: |
-| WebArena-Verified, development set (10 tasks) | **Drex Browser** | 29/40 | 73% | 0.0041 | 36 |
-| | Claude Code with Claude Haiku 5.5 | 17/20 | 85% | 0.0084 | 89 |
-| | Codex with gpt-6-luna | 14/20 | 70% | 0.0054 | 69 |
-| | Claude Code with Claude Sonnet 5.5 | 9/10 | 90% | 0.074 | 55 |
-| | Codex with gpt-6.1-sol | 8/10 | 80% | 0.073–0.103 | 59 |
-| WebArena-Verified, HOLDOUT-1 (30 tasks) | **Drex Browser** | 27/60 | 45% | 0.0063 | 54 |
-| | Claude Code with Claude Haiku 5.5 | 39/60 | 65% | 0.0074 | 85 |
-| Online-Mind2Web (50 tasks) | **Drex Browser** | 15/50 | 30% | 0.0099 | 86 |
-| | Claude Code with Claude Haiku 5.5 (two runs) | 67/100 | 67% | 0.018 | 168 |
-| MiniWoB++ (20 tasks) | **Drex Browser** | 39/40 | 98% | 0.0013 | 12 |
-| | Claude Code with Claude Haiku 5.5 | 36/40 | 90% | 0.0038 | |
-| | Codex with gpt-6-luna | 32/40 | 80% | 0.0025 | |
-| | Claude Code with Claude Sonnet 5.5 | 10/10 | 100% | | |
-| | Codex with gpt-6.1-sol | 10/10 | 100% | | |
-| Local test pages (13 tasks) | **Drex Browser** | 24/26 | 92% | 0.0035 | 24 |
+| WebArena-Verified, development set (10 tasks) | **Drex Browser** | 10 × 4 | 73% (29 of 40) | 0.0041 | 36 |
+| | Claude Code with Claude Haiku 5.5 | 10 × 2 | 85% (17 of 20) | 0.0084 | 89 |
+| | Codex with gpt-6-luna | 10 × 2 | 70% (14 of 20) | 0.0054 | 69 |
+| | Claude Code with Claude Sonnet 5.5 | 10 × 1 | 90% (9 of 10) | 0.074 | 55 |
+| | Codex with gpt-6.1-sol | 10 × 1 | 80% (8 of 10) | 0.073–0.103 | 59 |
+| WebArena-Verified, HOLDOUT-1 (30 tasks) | **Drex Browser** | 30 × 2 | 45% (27 of 60) | 0.0063 | 54 |
+| | Claude Code with Claude Haiku 5.5 | 30 × 2 | 65% (39 of 60) | 0.0074 | 85 |
+| Online-Mind2Web (50 tasks) | **Drex Browser** | 50 × 1 | 30% (15 of 50) | 0.0099 | 86 |
+| | Claude Code with Claude Haiku 5.5 (two runs) | 50 × 2 | 67% (67 of 100) | 0.018 | 168 |
+| MiniWoB++ (20 tasks) | **Drex Browser** | 20 × 2 | 98% (39 of 40) | 0.0013 | 12 |
+| | Claude Code with Claude Haiku 5.5 | 20 × 2 | 90% (36 of 40) | 0.0038 | |
+| | Codex with gpt-6-luna | 20 × 2 | 80% (32 of 40) | 0.0025 | |
+| | Claude Code with Claude Sonnet 5.5 | 10 tries | 100% (10 of 10) | | |
+| | Codex with gpt-6.1-sol | 10 tries | 100% (10 of 10) | | |
+| Local test pages (13 tasks) | **Drex Browser** | 13 × 2 | 92% (24 of 26) | 0.0035 | 24 |
 
 How to read these numbers:
 

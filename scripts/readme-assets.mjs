@@ -138,9 +138,10 @@ function benchmarks(theme) {
           const r = b.results[a.id];
           if (!r) return `<td class="cell none"><div class="pct">—</div><div class="sub mono">not run</div></td>`;
           const top = r.passed / r.attempts === best ? '<i class="best"></i>' : "";
-          const cost = r.usd === undefined ? "" : ` · ${r.usdRange ? "~" : ""}${usd(r)}`;
+          // a pass rate and a cost read the same for every agent; how many times each ran a task is in docs/evals.md
+          const cost = r.usd === undefined ? "cost not measured" : `${r.usdRange ? "~" : ""}${usd(r)} per task`;
           return `<td class="cell${a.ours ? " ours" : ""}"><div class="pct mono">${top}${pct(r)}</div>
-<div class="sub mono">${String(r.passed)}/${String(r.attempts)}${cost}</div></td>`;
+<div class="sub mono">${cost}</div></td>`;
         })
         .join("");
       return `<tr><th class="bench"><b>${esc(b.name)}</b><span>${esc(b.detail)}</span></th>${cells}</tr>`;

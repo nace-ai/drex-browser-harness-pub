@@ -107,15 +107,15 @@ debugger. Close the bar, or press **Stop**, to end a run.
   <img alt="Pass rate and model cost per task for Drex Browser and for coding agents that drive a browser, on WebArena-Verified, Online-Mind2Web and MiniWoB++; the numbers are in the table below." src="docs/assets/benchmarks-light.png">
 </picture>
 
-<sub>🟩 highest pass rate in the row · — not run · cost is the model cost per task at API list prices ·
-[methodology](docs/evals.md)</sub>
+<sub>Pass rate, with the model cost per task at API list prices below it · 🟩 highest pass rate in the row ·
+— not run · [methodology](docs/evals.md)</sub>
 
 | Benchmark | <mark>**Drex Browser**</mark><br><sub>Drex Max + Haiku 5.5</sub> | <sub>Claude Code<br>Haiku 5.5</sub> | <sub>Codex<br>GPT-6 Luna</sub> | <sub>Claude Code<br>Sonnet 5.5</sub> | <sub>Codex<br>gpt-6.1-sol</sub> |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| **WebArena-Verified**<br><sub>shopping · 10 dev tasks</sub> | <mark>**73%**</mark><br><sub>29/40 · $0.0041</sub> | 85%<br><sub>17/20 · $0.0084</sub> | 70%<br><sub>14/20 · $0.0054</sub> | 🟩&nbsp;**90%**<br><sub>9/10 · $0.074</sub> | 80%<br><sub>8/10 · ~$0.088</sub> |
-| **WebArena-Verified**<br><sub>shopping · 30 more tasks</sub> | <mark>**45%**</mark><br><sub>27/60 · $0.0063</sub> | 🟩&nbsp;**65%**<br><sub>39/60 · $0.0074</sub> | — | — | — |
-| **Online-Mind2Web**<br><sub>50 tasks on live sites</sub> | <mark>**30%**</mark><br><sub>15/50 · $0.0099</sub> | 🟩&nbsp;**67%**<br><sub>67/100 · $0.018</sub> | — | — | — |
-| **MiniWoB++**<br><sub>20 tasks</sub> | <mark>**98%**</mark><br><sub>39/40 · $0.0013</sub> | 90%<br><sub>36/40 · $0.0038</sub> | 80%<br><sub>32/40 · $0.0025</sub> | 🟩&nbsp;**100%**<br><sub>10/10</sub> | 🟩&nbsp;**100%**<br><sub>10/10</sub> |
+| **WebArena-Verified**<br><sub>shopping · 10 dev tasks</sub> | <mark>**73%**</mark><br><sub>$0.0041 per task</sub> | 85%<br><sub>$0.0084 per task</sub> | 70%<br><sub>$0.0054 per task</sub> | 🟩&nbsp;**90%**<br><sub>$0.074 per task</sub> | 80%<br><sub>~$0.088 per task</sub> |
+| **WebArena-Verified**<br><sub>shopping · 30 more tasks</sub> | <mark>**45%**</mark><br><sub>$0.0063 per task</sub> | 🟩&nbsp;**65%**<br><sub>$0.0074 per task</sub> | — | — | — |
+| **Online-Mind2Web**<br><sub>50 tasks on live sites</sub> | <mark>**30%**</mark><br><sub>$0.0099 per task</sub> | 🟩&nbsp;**67%**<br><sub>$0.018 per task</sub> | — | — | — |
+| **MiniWoB++**<br><sub>20 tasks</sub> | <mark>**98%**</mark><br><sub>$0.0013 per task</sub> | 90%<br><sub>$0.0038 per task</sub> | 80%<br><sub>$0.0025 per task</sub> | 🟩&nbsp;**100%**<br><sub>cost not measured</sub> | 🟩&nbsp;**100%**<br><sub>cost not measured</sub> |
 
 Drex Browser has the lowest cost in every row and leads on short tasks (MiniWoB++). On longer tasks, the 30 further
 WebArena tasks and the live sites of Online-Mind2Web, it trails Claude Code with Haiku. Closing that gap is the work in
