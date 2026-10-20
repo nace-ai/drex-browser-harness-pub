@@ -1,0 +1,140 @@
+{
+  "about": "The numbers behind the README's benchmark images and tables. Drex Browser 0.1.0, measured 2026-10-20. Coding agents: measured 2026-10-19 and 2026-10-20 on the same tasks, graders and machine. Cost is the model cost per attempt at API list prices; the coding agents ran on subscriptions and are priced from their token counts. Online-Mind2Web's judge is not included. Methodology: docs/evals.md. After editing, run node scripts/readme-assets.mjs.",
+  "agents": [
+    {
+      "id": "drex",
+      "name": "Drex Browser",
+      "model": "Drex Max + Haiku 5.5",
+      "ours": true
+    },
+    {
+      "id": "cc-haiku",
+      "name": "Claude Code",
+      "model": "Claude Haiku 5.5"
+    },
+    {
+      "id": "codex-luna",
+      "name": "Codex",
+      "model": "GPT-6 Luna"
+    },
+    {
+      "id": "cc-sonnet",
+      "name": "Claude Code",
+      "model": "Claude Sonnet 5.5"
+    },
+    {
+      "id": "codex-sol",
+      "name": "Codex",
+      "model": "gpt-6.1-sol"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "webarena-dev",
+      "name": "WebArena-Verified",
+      "detail": "shopping · 10 dev tasks",
+      "results": {
+        "drex": {
+          "passed": 29,
+          "attempts": 40,
+          "usd": 0.0041,
+          "seconds": 36
+        },
+        "cc-haiku": {
+          "passed": 17,
+          "attempts": 20,
+          "usd": 0.0084,
+          "seconds": 89
+        },
+        "codex-luna": {
+          "passed": 14,
+          "attempts": 20,
+          "usd": 0.0054,
+          "seconds": 69
+        },
+        "cc-sonnet": {
+          "passed": 9,
+          "attempts": 10,
+          "usd": 0.074,
+          "seconds": 55
+        },
+        "codex-sol": {
+          "passed": 8,
+          "attempts": 10,
+          "usd": 0.088,
+          "usdRange": "0.073–0.103",
+          "seconds": 59
+        }
+      }
+    },
+    {
+      "id": "webarena-more",
+      "name": "WebArena-Verified",
+      "detail": "shopping · 30 more tasks",
+      "results": {
+        "drex": {
+          "passed": 27,
+          "attempts": 60,
+          "usd": 0.0063,
+          "seconds": 54
+        },
+        "cc-haiku": {
+          "passed": 39,
+          "attempts": 60,
+          "usd": 0.0074,
+          "seconds": 85
+        }
+      }
+    },
+    {
+      "id": "online-mind2web",
+      "name": "Online-Mind2Web",
+      "detail": "50 tasks on live sites",
+      "results": {
+        "drex": {
+          "passed": 15,
+          "attempts": 50,
+          "usd": 0.0099,
+          "seconds": 86
+        },
+        "cc-haiku": {
+          "passed": 67,
+          "attempts": 100,
+          "usd": 0.0179,
+          "seconds": 168
+        }
+      }
+    },
+    {
+      "id": "miniwob",
+      "name": "MiniWoB++",
+      "detail": "20 tasks",
+      "results": {
+        "drex": {
+          "passed": 39,
+          "attempts": 40,
+          "usd": 0.0013,
+          "seconds": 12
+        },
+        "cc-haiku": {
+          "passed": 36,
+          "attempts": 40,
+          "usd": 0.0038
+        },
+        "codex-luna": {
+          "passed": 32,
+          "attempts": 40,
+          "usd": 0.0025
+        },
+        "cc-sonnet": {
+          "passed": 10,
+          "attempts": 10
+        },
+        "codex-sol": {
+          "passed": 10,
+          "attempts": 10
+        }
+      }
+    }
+  ]
+}

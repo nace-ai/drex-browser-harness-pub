@@ -6,6 +6,15 @@ Each entry names the part it changes: the Chrome extension or the local runner (
 
 ## [Unreleased]
 
+### Changed
+
+- README: a header image, a nav line, and Benchmarks and How it works sections. Benchmarks compares pass rate and cost
+  per task with Claude Code and Codex on WebArena-Verified, Online-Mind2Web and MiniWoB++. The images come in light and
+  dark and are rendered from `docs/assets/src/benchmarks.json` by `scripts/readme-assets.mjs`.
+- `docs/evals.md`: the results of 20 October 2026, with Online-Mind2Web and the coding agents on every set they ran. The
+  30-task WebArena set (HOLDOUT-1) is no longer described as unused for tuning: its failures were studied during
+  development.
+
 ## [0.1.0] - 2026-10-20
 
 The first public release of the source. Nothing is published to npm or the Chrome Web Store: build the runner and the

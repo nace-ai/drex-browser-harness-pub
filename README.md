@@ -1,4 +1,8 @@
-# Drex Browser
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/assets/header-narrow.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/header-dark.png">
+  <img alt="Drex Browser: browser tasks in plain words, for a fraction of a cent a move. Model cost per task on WebArena-Verified shopping (10 dev tasks), with the pass rate: Codex with gpt-6.1-sol about $0.088 (80%), Claude Code with Sonnet 5.5 $0.074 (90%), Claude Code with Haiku 5.5 $0.0084 (85%), Codex with GPT-6 Luna $0.0054 (70%), Drex Browser $0.0041 (73%)." src="docs/assets/header-light.png">
+</picture>
 
 **Describe a browser task in plain words. Drex Browser does it in a real browser and tells you what it found.**
 
@@ -12,6 +16,9 @@ details and tell me the confirmation".
 
 What it will not do: type passwords or payment details, or solve CAPTCHAs. It stops before a click it recognizes as
 risky (pay, send, delete, publish, place an order) unless a person approves it. See [Safety](#safety).
+
+[Quick start](#quick-start-the-local-runner) · [Chrome extension](#the-chrome-extension) · [Benchmarks](#benchmarks) ·
+[How it works](#how-it-works) · [Safety](#safety) · [Docs](#documentation)
 
 ## Ways to use it
 
@@ -93,6 +100,40 @@ gear icon). Each setting is described in [docs/extension-settings.md](docs/exten
 Chrome shows a "started debugging this browser" bar while the extension works: it drives tabs through Chrome's
 debugger. Close the bar, or press **Stop**, to end a run.
 
+## Benchmarks
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/benchmarks-dark.png">
+  <img alt="Pass rate and model cost per task for Drex Browser and for coding agents that drive a browser, on WebArena-Verified, Online-Mind2Web and MiniWoB++; the numbers are in the table below." src="docs/assets/benchmarks-light.png">
+</picture>
+
+<sub>🟩 highest pass rate in the row · — not run · cost is the model cost per task at API list prices ·
+[methodology](docs/evals.md)</sub>
+
+| Benchmark | <mark>**Drex Browser**</mark><br><sub>Drex Max + Haiku 5.5</sub> | <sub>Claude Code<br>Haiku 5.5</sub> | <sub>Codex<br>GPT-6 Luna</sub> | <sub>Claude Code<br>Sonnet 5.5</sub> | <sub>Codex<br>gpt-6.1-sol</sub> |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **WebArena-Verified**<br><sub>shopping · 10 dev tasks</sub> | <mark>**73%**</mark><br><sub>29/40 · $0.0041</sub> | 85%<br><sub>17/20 · $0.0084</sub> | 70%<br><sub>14/20 · $0.0054</sub> | 🟩&nbsp;**90%**<br><sub>9/10 · $0.074</sub> | 80%<br><sub>8/10 · ~$0.088</sub> |
+| **WebArena-Verified**<br><sub>shopping · 30 more tasks</sub> | <mark>**45%**</mark><br><sub>27/60 · $0.0063</sub> | 🟩&nbsp;**65%**<br><sub>39/60 · $0.0074</sub> | — | — | — |
+| **Online-Mind2Web**<br><sub>50 tasks on live sites</sub> | <mark>**30%**</mark><br><sub>15/50 · $0.0099</sub> | 🟩&nbsp;**67%**<br><sub>67/100 · $0.018</sub> | — | — | — |
+| **MiniWoB++**<br><sub>20 tasks</sub> | <mark>**98%**</mark><br><sub>39/40 · $0.0013</sub> | 90%<br><sub>36/40 · $0.0038</sub> | 80%<br><sub>32/40 · $0.0025</sub> | 🟩&nbsp;**100%**<br><sub>10/10</sub> | 🟩&nbsp;**100%**<br><sub>10/10</sub> |
+
+Drex Browser has the lowest cost in every row and leads on short tasks (MiniWoB++). On longer tasks, the 30 further
+WebArena tasks and the live sites of Online-Mind2Web, it trails Claude Code with Haiku. Closing that gap is the work in
+progress.
+
+<sub>Drex Browser 0.1.0 on 20 October 2026; the coding agents on 19 and 20 October 2026, with the same tasks, graders
+and machine. The coding agents ran on subscriptions and are priced from their token counts.
+Online-Mind2Web is judged by WebJudge with Claude Sonnet 5.5, whose cost is not included. Failures on all 40 WebArena
+tasks have been studied while developing the agent; further held-out tasks are kept back for release numbers. Times per task and how to
+rerun: [docs/evals.md](docs/evals.md#latest-results).</sub>
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.png">
+  <img alt="How Drex Browser works. Drex Max, a small decision model, reads the page's controls and picks one per move, for a fraction of a cent, and hands a move to the LLM only when it is unsure or stuck. An LLM (Claude Haiku 5.5 by default, or a model from OpenAI, Google, OpenRouter or Fireworks) plans the task, reads the pages and checks the result. Pay, send, delete, publish and order clicks stop for approval; it never types passwords, and it hands sign-ins and CAPTCHAs back to you. The same agent runs as an MCP server or a CLI for coding agents and as a Chrome side panel for people; cloud runs come later." src="docs/assets/how-it-works-light.png">
+</picture>
+
 ## Safety
 
 - **Risky actions are denied by default in the runner and the MCP server.** When the next move is a click recognized
@@ -136,8 +177,9 @@ governed by their own terms. Details and links are in [docs/privacy.md](docs/pri
 
 ## Limitations and known issues
 
-- **Accuracy:** about 75% on WebArena-Verified shopping development tasks and 53% on held-out ones; see
-  [docs/evals.md](docs/evals.md). Check the answer of a run that matters.
+- **Accuracy:** 73% on the WebArena-Verified shopping development tasks, 45% on 30 further tasks and 30% on live sites
+  (Online-Mind2Web), where Claude Code with Haiku 5.5 gets 85%, 65% and 67%; see [Benchmarks](#benchmarks). Check the
+  answer of a run that matters.
 - **Risk detection is English-only and name-based**, as described under [Safety](#safety).
 - **No npm package or Chrome Web Store listing yet:** build from source.
 - **Cloud runs are not available yet.**
@@ -170,7 +212,8 @@ governed by their own terms. Details and links are in [docs/privacy.md](docs/pri
 | `plugins/`, `.claude-plugin/` | The Claude Code plugin and its marketplace entry |
 | `test/` | Unit and browser tests |
 | `e2e/` | Synthetic test pages (a mailbox, forms, menus, a checkout) and the scripts that drive the extension on them |
-| `scripts/` | Build helpers |
+| `scripts/` | Build helpers, and `readme-assets.mjs`, which renders the README's images |
+| `docs/` | The guides listed under [Documentation](#documentation); `docs/assets/` holds the README's images and `docs/assets/src/benchmarks.json` their numbers |
 | `third_party/` | The license and upstream commit of browser-use/browser-harness |
 
 ## Documentation
@@ -199,3 +242,6 @@ including its site tips, key-by-key typing and background-tab approach. Its lice
 ## License
 
 [MIT](LICENSE). The Nace and Drex names and the Nace logo are not covered by the license.
+
+<sub>[Docs](#documentation) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) ·
+MIT, © 2026 [Nace AI](https://nace.ai) · [Notices](NOTICE)</sub>
