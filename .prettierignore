@@ -8,6 +8,8 @@ package-lock.json
 src/sites.json
 # Copies of real sites' pages: the agent is tested on them as they are
 e2e/site/
+# Real runs kept as downloaded (their logs and plans), to work on later
+e2e/cases/
 # Prose is wrapped by hand, and Prettier pads every table row to the widest cell
 *.md
 docs/

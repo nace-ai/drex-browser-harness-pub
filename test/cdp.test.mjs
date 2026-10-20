@@ -66,3 +66,47 @@ test("Tab.gesture rejects a keychord whose modifier is an array, before any Inpu
   );
   assert.deepEqual(sent, []);
 });
+
+// Google Sheets (2026-10-20): typed, a tab-separated table went into one cell, tabs and all; pasted, it fills the cells
+test("Tab.type gives tab-separated text to the page as one paste, and types it when the page doesn't take it", async () => {
+  const table = "Store\tPrice\nBest Buy\t$228.00\nTarget\t$399.99";
+  const run = async (where, text = table) => {
+    const tab = new Tab(7);
+    const sent = [];
+    tab.send = async (method, params = {}) => {
+      sent.push([method, params]);
+      if (method === "Runtime.evaluate")
+        return { result: { value: params.expression.includes("ClipboardEvent") ? where : undefined } };
+      return {};
+    };
+    const typed = await tab.type(text);
+    return { sent, typed, inserted: sent.filter(([m]) => m === "Input.insertText").map(([, p]) => p.text) };
+  };
+  const pasted = await run("taken");
+  const paste = pasted.sent.find(([m, p]) => m === "Runtime.evaluate" && p.expression.includes("ClipboardEvent"));
+  assert.ok(paste, "a paste is offered first");
+  assert.ok(paste[1].expression.includes(JSON.stringify(table)));
+  assert.deepEqual([pasted.typed, pasted.inserted], [true, []]);
+
+  const textarea = await run("other"); // a text area or document that didn't take the paste: typed, line by line
+  assert.deepEqual(textarea.typed, true);
+  assert.deepEqual(textarea.inserted, ["Store\tPrice", "Best Buy\t$228.00", "Target\t$399.99"]);
+
+  // a one-line box (Sheets' menu search, which an unlabeled click had focused): its rows typed with Enter after each
+  // ran the menu's "Import file"; the table is not typed there, and the move says so
+  const box = await run("one-line");
+  assert.deepEqual([box.typed, box.inserted], [false, []]);
+  assert.equal(box.sent.filter(([m]) => m === "Input.dispatchKeyEvent").length, 0);
+  assert.equal((await run("one-line", "Store\tPrice")).typed, true); // one row is not a table: typed as before
+
+  const tab = new Tab(7); // text with no tabs is typed as always, no paste
+  const methods = [];
+  tab.send = async (method) => {
+    methods.push(method);
+    return { result: { value: undefined } };
+  };
+  await tab.type("Sony WH-1000XM5");
+  assert.equal(methods.includes("Input.insertText"), false);
+  assert.ok(methods.includes("Input.dispatchKeyEvent"));
+  assert.equal(methods.filter((m) => m === "Runtime.evaluate").length, 1); // only the input notification
+});

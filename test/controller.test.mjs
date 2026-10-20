@@ -2436,3 +2436,308 @@ test("a run handed over to the person makes no final-answer call: its answer say
     globalThis.chrome = previous;
   }
 });
+
+// A reported Tahoe run (2026-10-20): at the move limit the helper said the filters were on and chose "step done";
+// with a plan that answer was dropped, and the step failed with "did not finish in 12 moves"
+const helperSays = (option, why = "The goal is on screen") =>
+  response({
+    decision: "move",
+    user_need: "none",
+    option,
+    text: "",
+    why,
+    x: 0,
+    y: 0,
+    gesture: { kind: "hover", endX: 0, endY: 0, key: "", modifiers: [] },
+    new_steps: [],
+  });
+
+test('with a plan, the helper\'s "step done" at the move limit ends the step instead of failing it', async () => {
+  const a = agent({ rescue: async () => helperSays("step done", "Hot tub filter is applied") });
+  a.look = async () => ({ ...scr, els: [next] });
+  a.currentTab = async () => page();
+  a.drexCall = drexSays(["click E1", 0.01]);
+  a.act = async () => ({ dispatched: true, risky: false });
+  assert.deepEqual(await a.browse({ ...step, max_moves: 5 }), {});
+  assert.ok(a.record.some((e) => e.type === "tab" && /this step is done/.test(e.what)));
+});
+
+test("with a plan, the helper's \"step done\" after a move that can't be undone still needs the step check", async () => {
+  let checks = 0;
+  const a = agent({
+    rescue: async () => helperSays("step done"),
+    read: async () => {
+      checks++;
+      return response({ complete: true, evidence: "Order confirmation shown", text: "", next_steps: [] });
+    },
+  });
+  a.look = async () => ({ ...scr, els: [order] });
+  a.currentTab = async () => page();
+  a.drexCall = drexSays(["click E2", 0.01]);
+  a.act = async () => ({ dispatched: true, risky: true });
+  assert.deepEqual(await a.browse({ ...step, max_moves: 5 }), {});
+  assert.equal(checks, 1);
+  assert.equal(a.notes.evidence1, "Order confirmation shown");
+});
+
+// Both reported Sheets runs: the plan opened https://sheets.new, which redirects to docs.google.com; that site
+// wasn't trusted, so the notes (the table to type) were withheld there and the run could never fill the sheet
+test("a first-plan URL that redirects by itself makes the site it lands on trusted; a move first does not", async () => {
+  const previous = globalThis.chrome;
+  globalThis.chrome = {
+    tabs: { create: async () => ({ id: 7 }), group: async () => 1, get: async () => null, update: async () => ({}) },
+    tabGroups: { update: async () => ({}) },
+  };
+  const docs = "https://docs.google.com";
+  const named = () => {
+    const a = agent(noLLM());
+    a.windowId = 1;
+    a.trusted = new Set(["https://sheets.new", "http://owned.test"]);
+    a.namedUrls = new Set(["https://sheets.new"]);
+    return a;
+  };
+  try {
+    const a = named();
+    await a.openOwnTab("https://sheets.new");
+    a.trustLanding(7, "about:blank"); // still loading
+    a.trustLanding(7, "https://sheets.new/"); // still on the named site
+    assert.equal(a.trusted.has(docs), false);
+    a.trustLanding(7, `${docs}/spreadsheets/d/1/edit`);
+    assert.equal(a.trusted.has(docs), true);
+    a.trustLanding(7, "https://accounts.google.com/signin"); // only the first site it lands on
+    assert.equal(a.trusted.has("https://accounts.google.com"), false);
+
+    const b = named(); // the agent moved before the page left the named site: where it goes is not the redirect
+    await b.openOwnTab("https://sheets.new");
+    b.approvals = false;
+    b.perform = async () => {};
+    b.capture = async () => "same";
+    await b.act(page(), { kind: "key", key: "Enter" }, null, scr, [], "drex", 1);
+    b.trustLanding(7, `${docs}/spreadsheets/d/1/edit`);
+    assert.equal(b.trusted.has(docs), false);
+
+    const c = named(); // a trusted site's URL that the first plan didn't name (a replan's) earns its redirect no trust
+    await c.openOwnTab("http://owned.test/go?to=https://docs.google.com");
+    c.trustLanding(7, `${docs}/spreadsheets/d/1/edit`);
+    assert.equal(c.trusted.has(docs), false);
+
+    const d = named(); // another tab's address is not this one's landing
+    await d.openOwnTab("https://sheets.new");
+    d.trustLanding(8, `${docs}/spreadsheets/d/1/edit`);
+    assert.equal(d.trusted.has(docs), false);
+
+    // the step waits for the redirect before its first look: settling ended on about:blank, and the first move (the
+    // helper's click there) then made the landing a move's
+    const hops = ["about:blank", "https://sheets.new/", `${docs}/spreadsheets/u/0/create`];
+    globalThis.chrome.tabs.get = async (id) => ({ id, url: hops.shift() ?? `${docs}/x`, status: "loading" });
+    const e = named();
+    await e.openOwnTab("https://sheets.new");
+    await e.awaitLanding();
+    assert.equal(e.trusted.has(docs), true);
+    assert.equal(hops.length, 0);
+
+    globalThis.chrome.tabs.get = async (id) => ({ id, url: "https://sheets.new/", status: "complete" }); // no redirect
+    const f = named();
+    await f.openOwnTab("https://sheets.new");
+    await f.awaitLanding();
+    assert.equal(f.trusted.has(docs), false);
+    f.trustLanding(7, `${docs}/spreadsheets/d/1/edit`); // the page's own later redirect, before any move, still counts
+    assert.equal(f.trusted.has(docs), true);
+
+    // the agent's own tab reused (the headphones rerun: Sony's store, then sheets.new): until the navigation commits the
+    // tab still shows its old page, which is not where the planned URL landed
+    const sony = "https://electronics.sony.com/audio/headphones/wh1000xm5";
+    const states = [
+      { url: sony, status: "complete" }, // openOwnTab's check for a redundant navigation
+      { url: sony, status: "loading" },
+      { url: sony, pendingUrl: "https://sheets.new/", status: "loading" },
+      { url: `${docs}/spreadsheets/u/0/create`, status: "loading" },
+    ];
+    globalThis.chrome.tabs.get = async (id) => ({
+      id,
+      ...(states.shift() ?? { url: `${docs}/x`, status: "complete" }),
+    });
+    const g = named();
+    g.trusted.add("https://electronics.sony.com");
+    g.agentTabId = 7;
+    g.ownTab = true;
+    await g.openOwnTab("https://sheets.new");
+    await g.awaitLanding();
+    assert.equal(g.trusted.has(docs), true);
+  } finally {
+    globalThis.chrome = previous;
+  }
+});
+
+// The rerun of the Tahoe task: the 9 listings were collected, but the check after the collection kept asking for what
+// the list doesn't show (each listing's hot tub, whether Carson City is Lake Tahoe), and its third objection ended the
+// run before the sheet was made: "Could not find what step 2 needs after 3 checks"
+test("a collection whose check keeps objecting goes on with the records it gathered, the objection kept", async () => {
+  const objecting = () =>
+    agent({
+      read: async () =>
+        response({ complete: false, evidence: "Hot tub is only implied by the filter", text: "", next_steps: [step] }),
+    });
+  const collection = { ...step, kind: "collect", save_as: "listings" };
+  const verify = { ...collection, kind: "verify", save_as: "listings_verification" };
+  const a = objecting();
+  a.notes = { listings: "9 homes: 3 Peaks Resort $215, ..." };
+  assert.deepEqual((await a.read(verify, { requeue: collection })).replan.at(-1).kind, "collect");
+  await a.read(verify, { requeue: collection });
+  assert.deepEqual(await a.read(verify, { requeue: collection }), {});
+  assert.match(a.notes.listings_unverified, /Hot tub is only implied/);
+  assert.equal(a.incompleteChecks, 0);
+
+  const b = objecting(); // nothing gathered: the third miss still ends the run
+  for (let i = 0; i < 2; i++) await b.read(verify, { requeue: collection });
+  assert.equal((await b.read(verify, { requeue: collection })).terminal, true);
+
+  const c = objecting(); // a read's own answer missing three times still ends it
+  c.notes = { listings: "9 homes" };
+  const answer = { ...step, kind: "read", save_as: "answer" };
+  for (let i = 0; i < 2; i++) await c.read(answer);
+  assert.equal((await c.read(answer)).terminal, true);
+});
+
+// Fixed-build Tahoe run 5: the plan typed the collect step's note ({{listings_table}}) straight into the sheet, and
+// Drex typed 4,035 characters of its evidence JSON at A1 (no step had written the table)
+test("a step that would type a collection's evidence JSON gets a step writing it first", async () => {
+  const a = agent(noLLM());
+  const evidence = JSON.stringify({ instruction: "Source URLs identify evidence locations", sources: [] });
+  a.notes = { listings: `${evidence}\nCOLLECTION COVERAGE COMPLETE: true`, query: "hot tub" };
+  const sheet = {
+    ...step,
+    kind: "browse",
+    goal: "Type the whole table text into cell A1",
+    texts: [{ name: "table", text: "{{listings}}" }],
+  };
+  a.plan = { steps: [{ ...step, kind: "collect", save_as: "listings" }, sheet] };
+  a.index = 1;
+  assert.equal(a.writeEvidenceFirst(a.plan.steps[1]), true);
+  const [written, typing] = a.plan.steps.slice(1);
+  assert.equal(written.kind, "read");
+  assert.equal(written.save_as, "listings_text");
+  assert.match(written.goal, /Type the whole table text into cell A1/);
+  assert.match(written.goal, /tab-separated/);
+  assert.deepEqual(typing.texts, [{ name: "table", text: "{{listings_text}}" }]);
+  assert.equal(a.writeEvidenceFirst(typing), false); // once written, the step types the text
+
+  const plain = { ...sheet, texts: [{ name: "q", text: "{{query}}" }] }; // a plain note is typed as it is
+  a.plan.steps.push(plain);
+  assert.equal(a.writeEvidenceFirst(plain), false);
+  const matches = JSON.stringify({ matches: [{ name: "Oak Cabin" }] }); // noteResolve's list notes stay its own
+  a.notes.found = matches;
+  assert.equal(a.writeEvidenceFirst({ ...sheet, texts: [{ name: "t", text: "{{found}}" }] }), false);
+});
+
+// Fixed-build Tahoe run 6a: an unlabeled click put the cursor in Sheets' menu search; the table typed there, a row and
+// an Enter at a time, ran "Import file", and the step was taken as done
+test("a table not typed at a one-line box is a move not made, and Drex's history says why", async () => {
+  const a = agent({});
+  a.approvals = false;
+  a.capture = async () => "same";
+  const history = [];
+  const tab = page({ type: async () => false });
+  const out = await a.act(tab, { kind: "type_cursor" }, "Name\tPrice\nCabin\t$108", scr, history, "drex", 1);
+  assert.match(out.blocked, /one-line box/);
+  assert.equal(history.at(-1).changed, false);
+  assert.match(history.at(-1).note, /Escape/);
+});
+
+// Final Tahoe rerun 1: the collection's check, failing, put "Create a new Google Sheet and enter the listings" (opening
+// sheets.new, no text) among its repairs, ahead of the plan's own table-writing read and sheet step; the sheet step
+// then had nothing to type and the run gave up
+test("a check's repair never brings a later step forward: no step opening what a later step opens", async () => {
+  const collection = { ...step, kind: "collect", save_as: "listings" };
+  const sheet = { ...step, open_url: "https://sheets.new", texts: [{ name: "table", text: "{{sheet_text}}" }] };
+  const fix = { ...collection, goal: "Collect the 9 listings with their URLs" };
+  const early = { ...step, open_url: "https://sheets.new", goal: "Create a new Google Sheet and enter the listings" };
+  const a = agent({
+    read: async () => response({ complete: false, evidence: "URLs missing", text: "", next_steps: [fix, early] }),
+  });
+  a.plan = { steps: [collection, { ...step, kind: "read", save_as: "sheet_text" }, sheet] };
+  const out = await a.read(
+    { ...collection, kind: "verify", save_as: "listings_verification" },
+    { requeue: collection },
+  );
+  assert.deepEqual(
+    out.replan.map((s) => s.goal),
+    [fix.goal],
+  );
+});
+
+// CI p-notes, on main as on PR #29: the plan names the user's notes tab use_tab 0; its first step opened Wikipedia in
+// the agent's own tab, which took over logical tab 0, so the later steps on tab 0 checked Wikipedia, and the replan
+// that followed reopened the notes page empty and saved it over the note
+test("a tab the agent opens on another site gets a logical index of its own; a same-site copy takes the plan's tab", async () => {
+  const previous = globalThis.chrome;
+  const pages = new Map([
+    [1, "http://notes.test/notes.html"],
+    [2, "http://owned.test/"],
+  ]);
+  let next = 5;
+  globalThis.chrome = {
+    tabs: {
+      get: async (id) => {
+        if (!pages.has(id)) throw new Error("No tab");
+        return { id, url: pages.get(id), status: "complete" };
+      },
+      create: async ({ url }) => {
+        const id = next++;
+        pages.set(id, url);
+        return { id };
+      },
+      update: async (id, { url }) => {
+        pages.set(id, url);
+        return { id };
+      },
+      group: async () => 1,
+    },
+    tabGroups: { update: async () => ({}) },
+  };
+  const user = () => {
+    const a = agent(noLLM());
+    a.windowId = 1;
+    a.startTabs = [
+      { id: 1, url: pages.get(1) },
+      { id: 2, url: pages.get(2) },
+    ];
+    a.tabBindings = new Map([
+      [0, 1],
+      [1, 2],
+    ]);
+    a.activePlanTab = 0;
+    a.agentTabId = 1;
+    a.ownTab = false;
+    return a;
+  };
+  try {
+    const a = user();
+    await a.openOwnTab("https://en.wikipedia.org");
+    assert.deepEqual(
+      [...a.tabBindings],
+      [
+        [0, 1],
+        [1, 2],
+        [2, 5],
+      ],
+    );
+    assert.equal(a.activePlanTab, 2);
+    a.currentTab = async () => page();
+    await a.prepare({ use_tab: 0, open_url: "" }); // the plan's notes tab is the user's notes tab again
+    assert.equal(a.agentTabId, 1);
+
+    const b = user(); // a working copy (the same site) still takes the plan's tab, as before
+    b.activePlanTab = 1;
+    b.agentTabId = 2;
+    await b.openOwnTab("http://owned.test/search?q=item");
+    assert.equal(b.tabBindings.get(1), 6);
+    assert.equal(b.activePlanTab, 1);
+    await b.openOwnTab("https://elsewhere.test/"); // that copy goes on to another site: tab 1 is the user's tab again
+    assert.equal(b.tabBindings.get(1), 2);
+    assert.equal(b.tabBindings.get(2), 6);
+    assert.equal(b.activePlanTab, 2);
+  } finally {
+    globalThis.chrome = previous;
+  }
+});

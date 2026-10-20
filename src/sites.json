@@ -803,8 +803,8 @@
    "google spreadsheets",
    "spreadsheet"
   ],
-  "planner_tips": "Open spreadsheets at docs.google.com/spreadsheets/d/<id>/edit and log in with the Google account first, since editing and CSV export need an authorized session. To verify written values, open docs.google.com/spreadsheets/d/<id>/export?format=csv&gid=<gid> and check the contents; an account chooser or login page means the session is not authorized.",
-  "screen_tips": "Autocomplete can silently change a typed text value: a suggested remainder from the same column is selected, and Tab or Enter commits it, so press Delete after typing a text value and before Tab or Enter. Do not press Delete after the cell is committed, since it may clear the selected cell. Navigate to a cell by typing its address (for example A2) in the Name Box at the top left and pressing Enter rather than clicking grid coordinates. Verify each entered value by reading the cell back, including numbers, dates, and URLs, because a wrong autocomplete value looks like a successful entry."
+  "planner_tips": "A new spreadsheet opens at https://sheets.new; an existing one at docs.google.com/spreadsheets/d/<id>/edit, with the Google account logged in. To write a table, first save it as one text of tab-separated rows (a tab between cells, a new line between rows, the header row first), then one browse step types that whole text once at the top-left cell: it is pasted into the cells. Never plan cell-by-cell typing.",
+  "screen_tips": "To enter a table, select its top-left cell (a new sheet starts with A1 selected; else type the address in the Name Box at the top left and press Enter), then type the whole tab-separated text at the cursor in ONE move: it is pasted into the cells, so no Tab, Enter or Delete presses between values. Grid cells are drawn, not tagged: never click unlabeled buttons on the grid. Escape while a cell is being edited throws away what was typed into it; Enter keeps it. After the paste, check the cells on screen."
  },
  {
   "key": "gutenberg",

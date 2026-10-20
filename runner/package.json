@@ -1,6 +1,6 @@
 {
   "name": "@nace-ai/browser",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run the Drex browser agent from a coding agent: a CLI and an MCP server over a local Chromium.",
   "type": "module",
   "bin": {
