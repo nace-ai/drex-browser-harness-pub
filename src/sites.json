@@ -1,0 +1,1898 @@
+[
+ {
+  "key": "aa",
+  "name": "American Airlines",
+  "url_prefixes": [
+   "aa.com/booking",
+   "aa.com/airfare-sales",
+   "aa.com/ecommerce",
+   "aa.com"
+  ],
+  "names": [
+   "american airlines",
+   "american",
+   "aa",
+   "aa.com",
+   "american airlines booking"
+  ],
+  "planner_tips": "Open the search results directly with the deep link https://www.aa.com/booking/search/find-flights?locale=en_US&fareType=Lowest&pax=1&adult=1&type=OneWay&searchType=Revenue&cabin=&carriers=ALL&travelType=personal&slices=<URL-encoded JSON> where slices is like [{\"orig\":\"DFW\",\"origNearby\":false,\"dest\":\"AUS\",\"destNearby\":false,\"date\":\"2026-05-06\"}], since the homepage search form often fails to submit origin and destination. Guest checkout works without logging in; choose Continue as guest on the trip summary page. Payment entry happens at the checkout page under the cart URL, and the trip ends at the credit card form without submitting.",
+  "screen_tips": "On results, click the cabin card to expand the fare tray, then choose the fare button inside it; choosing Basic Economy opens an upsell where the decline button is labeled Accept restrictions. On the passenger page, add a passenger through the Enter new passenger button and its modal Save button before pressing the page Continue, since Continue earlier just opens the modal; set the state dropdown after country, and use single-letter gender values. On the seat map, the Skip seats for all flights link moves on, and the checkout page has plain fields where card number reveals the CVV field and payment method radios expand the card form."
+ },
+ {
+  "key": "agentlist",
+  "name": "AgentList",
+  "url_prefixes": [
+   "agentlist.com"
+  ],
+  "names": [
+   "agentlist",
+   "agent list"
+  ],
+  "planner_tips": "Open agentlist.com/?q=TERM to search the directory, or agentlist.com/?q=TERM with the category buttons Skills, Agents, MCPs, Configs or Paid For to narrow results. Sort controls are Top, New and Trending. Individual listings live at agentlist.com/listing/{uuid}. Voting, passkey sign-in and submitting listings need the user's own identity, so only do them when the user explicitly asks for that exact action.",
+  "screen_tips": "The homepage has a search box at the top and a table with columns #, Title, Author, Date and Votes, with category and sort buttons above it. Typing into the search box can double characters if filled too fast, so after typing confirm the query shows once in the box and the URL becomes agentlist.com/?q=TERM. Listing titles are links to the detail page, and detail pages show the content and a Load box with the skill folder URL. A user pill or Sign out button at the top right means a session is already signed in."
+ },
+ {
+  "key": "airbnb",
+  "name": "Airbnb",
+  "url_prefixes": [
+   "airbnb.com/s",
+   "airbnb.com/rooms"
+  ],
+  "names": [
+   "airbnb",
+   "air bnb",
+   "airbnb stays"
+  ],
+  "planner_tips": "Open a search directly with URL parameters: airbnb.com/s/<City>/homes with checkin and checkout dates, adults, min_bedrooms, room_types[]=Entire home/apt, and optional price_max. For stays of 28+ nights, set price_filter_num_nights to the night count; prices then show as monthly totals including fees. Listing pages are airbnb.com/rooms/<id> with check_in, check_out and adults parameters. No login is needed to search or view listings.",
+  "screen_tips": "Result cards link to /rooms/ pages and show badges such as Guest favorite, Superhost and New place to stay; monthly prices appear as 'monthly' figures on long stays. Cards starting with a date range such as 'Oct 17 to Dec 16' are flexible-date suggestions, not available for the requested dates. Go to the next page with the page-number or cursor controls rather than relying on the Next button, which can fail. The results header shows 'N homes within map area' to confirm the search area."
+ },
+ {
+  "key": "alaska",
+  "name": "Alaska Airlines",
+  "url_prefixes": [
+   "alaskaair.com/search",
+   "alaskaair.com/book",
+   "alaskaair.com"
+  ],
+  "names": [
+   "alaska airlines",
+   "alaska air",
+   "alaska",
+   "alaskaair"
+  ],
+  "planner_tips": "Open https://www.alaskaair.com/search/results?O=SEA&D=PDX&OD=2026-04-29&A=1&C=0&L=0&RT=false to go straight to one-way cash results, bypassing the homepage promo. No login is needed for guest checkout; the flow runs through cart, then Continue as guest at /book/guest-info, then seat selection, then /book/checkout. Results may open in points mode, so switch to Money before choosing a fare.",
+  "screen_tips": "The Money/Points toggle is a single switch near the top of results. Form fields are custom Auro components: type into text fields after clicking them, and open select dropdowns and click the option rather than relying on typed values. Card number and security code are in separate payment iframes, so click into each field before typing. The Protect your trip insurance section must be set to No before the page will advance."
+ },
+ {
+  "key": "amazon",
+  "name": "Amazon",
+  "url_prefixes": [
+   "amazon.co.uk/your-orders",
+   "amazon.com/your-orders",
+   "amazon.com",
+   "amazon.co.uk"
+  ],
+  "names": [
+   "amazon",
+   "amazon.com",
+   "amazon uk",
+   "amazon.co.uk",
+   "amazon orders",
+   "amazon order history"
+  ],
+  "planner_tips": "Order history is at https://www.amazon.co.uk/your-orders/orders (or amazon.com) and can be filtered with a timeFilter query parameter such as year-2025, months-3 or last30, plus startIndex in steps of 10 for pagination. Order history requires being logged in; if the page redirects to an Amazon Sign-In page, a human must log in first. Product search works directly with https://www.amazon.com/s?k=search+terms and product pages open at /dp/ASIN.",
+  "screen_tips": "Order history shows 10 orders per page with a total count such as '186 orders' near the top; compare the number of orders you see against that count. A year with no orders may still have a count to check, so verify before concluding it is empty. Use the next-page control at the bottom to move through pages; it is greyed out on the last page. Search results often start with a few sponsored listings, and the first visit to Amazon in a session can need a new tab rather than navigating the current one; pages may take a couple of seconds to finish loading after they appear."
+ },
+ {
+  "key": "apollo",
+  "name": "Apollo",
+  "url_prefixes": [
+   "app.apollo.io"
+  ],
+  "names": [
+   "apollo",
+   "apollo.io",
+   "apollo io"
+  ],
+  "planner_tips": "Company search is at app.apollo.io/#/companies and people search at app.apollo.io/#/people; lists are at app.apollo.io/#/lists and a single list at app.apollo.io/#/lists/<list-id>. Filters are carried in the hash query (for example organizationNumEmployeesRanges[] and organizationIndustryTagIds[]), but only use industry or list IDs seen in the current UI or an observed search URL, never invented ones. Saved searches and lists require a logged-in Apollo account.",
+  "screen_tips": "The main Save search button overwrites whichever saved search is selected; to make a new one, open Select view and choose Create saved search, and to rename one, hover it in the view selector, open the ellipsis and choose Edit, then select the whole name before typing. When selecting rows, choosing Select this page moves the Apply button up, so find it again afterward, and verify the selected row names before saving. After saving to a list, the page can show duplicate rows or zero counts, so check the individual list and reload the page if counts look wrong; an unfiltered check may need Clear filters because the list page can inherit employee-size filters that hide members."
+ },
+ {
+  "key": "archive-org",
+  "name": "Internet Archive / Wayback Machine",
+  "url_prefixes": [
+   "archive.org",
+   "web.archive.org"
+  ],
+  "names": [
+   "internet archive",
+   "wayback machine",
+   "archive.org",
+   "web archive",
+   "wayback"
+  ],
+  "planner_tips": "Open web.archive.org/web/*/example.com (with an asterisk) to see the calendar view of captures for a URL, and pick a date from it. Use web.archive.org/web/{YYYYMMDDHHMMSS}/{url} to open a specific snapshot, where a partial timestamp like 20230601 also works. Item pages are archive.org/details/{identifier}, and search is archive.org/advancedsearch.php or the search box on archive.org. No login is needed for public content.",
+  "screen_tips": "Archived pages show a Wayback toolbar at the top with capture dates and a calendar; click a year or date on the timeline to jump to another capture. Item pages have a download options panel on the right listing files like ZIP, PDF, or MP4. If a snapshot shows a 'Wayback Machine has not archived that URL' message, try a nearby date from the calendar. Search results load on the page, so wait for the result count to appear before reading."
+ },
+ {
+  "key": "articulate-rise",
+  "name": "Articulate Rise 360",
+  "url_prefixes": [
+   "rise.articulate.com",
+   "articulate.com/rise"
+  ],
+  "names": [
+   "articulate rise",
+   "rise 360",
+   "articulate rise 360",
+   "rise"
+  ],
+  "planner_tips": "Open authoring at rise.{instance}.articulate.com/authoring/{courseId}/lesson/{lessonId} for any edit, and use the preview URL rise.{instance}.articulate.com/preview/{courseId}#/lessons/{lessonId} only to look at the learner view. Sign-in to the Rise account is required for authoring.",
+  "screen_tips": "Edits to a lesson save automatically when the side panel is closed, so there is no Save button to look for. Use the X in the panel's top corner to close it, since Escape does not close it. After an edit, reload the page before checking the result, because the preview does not refresh on its own. Code blocks display inside a nested embedded frame, so fonts and styles inside them may look wrong even when the page is correct."
+ },
+ {
+  "key": "arxiv",
+  "name": "ArXiv",
+  "url_prefixes": [
+   "arxiv.org"
+  ],
+  "names": [
+   "arxiv",
+   "arxiv.org",
+   "arxiv preprints"
+  ],
+  "planner_tips": "Search papers directly at https://arxiv.org/search/?query=transformer&searchtype=all, or use field-specific search like https://arxiv.org/search/?searchtype=title&query=transformer and https://arxiv.org/search/?searchtype=author&query=Vaswani. Open a known paper by ID at https://arxiv.org/abs/1706.03762 and browse categories at https://arxiv.org/list/cs.LG/recent. No login is needed to read or search papers.",
+  "screen_tips": "The abstract page shows the title, authors, abstract, and links to the PDF on the left and right sidebars. Search results list papers with their IDs, and each result has a PDF link. Search pages can be sorted and filtered using dropdowns and checkboxes near the top of the results. Reading and searching do not require an account."
+ },
+ {
+  "key": "arxiv-bulk",
+  "name": "arXiv",
+  "url_prefixes": [
+   "arxiv.org",
+   "export.arxiv.org",
+   "oaipmh.arxiv.org"
+  ],
+  "names": [
+   "arxiv",
+   "arxiv.org",
+   "arxiv preprints"
+  ],
+  "planner_tips": "Papers open directly at arxiv.org/abs/<id>, for example arxiv.org/abs/1706.03762, and PDFs at arxiv.org/pdf/<id>. Keyword search works at arxiv.org/search/?query=<terms>&searchtype=all, and category listings at arxiv.org/list/cs.LG/recent. No login is needed to browse, search, or download.",
+  "screen_tips": "The abstract page shows the title, authors, abstract, and a Download PDF link in the left sidebar. Version history appears under Submission history near the bottom of the abstract page. Search results show 50 per page by default, with pagination controls at the top and bottom. Search fields are on the top bar and the results page has its own search box."
+ },
+ {
+  "key": "atlas",
+  "name": "Atlas",
+  "url_prefixes": [
+   "my.recruitwithatlas.com"
+  ],
+  "names": [
+   "atlas",
+   "atlas recruit",
+   "recruitwithatlas",
+   "atlas agency"
+  ],
+  "planner_tips": "Log in first, since unauthenticated visits redirect to /sign-in and login uses Google SSO with a passkey and no visible password option. After login the app lands on /home. Open business development pages directly at /business-development/opportunities, /business-development/leads, /business-development/prospects, or /business-development/playbook, and candidates at /candidates. A specific job or project is at /projects/<id>. Opportunity filters can be set through a filters query parameter, but setting them in the UI is simpler.",
+  "screen_tips": "On /business-development/opportunities, the stage tabs are Identified, Initial Outreach, Late Stage, Converted, and Archived, and the page can switch between kanban and list views. Filter controls are for owner, stage, industry, segment, and conversion probability. Page titles begin with a green dot emoji, such as \"🟢 Business development\", which can confirm the right page has loaded. If the page bounces to sign-in, the session has expired and you need to log in again in the same browser profile."
+ },
+ {
+  "key": "bigbang-hr",
+  "name": "Big Bang",
+  "url_prefixes": [
+   "bigbang.hr/webshop"
+  ],
+  "names": [
+   "big bang",
+   "bigbang",
+   "big bang hr",
+   "bigbang.hr"
+  ],
+  "planner_tips": "Open https://www.bigbang.hr/webshop/kosarica/ for the cart and https://www.bigbang.hr/webshop/kupac/ for checkout, which has three steps on the same URL: customer data, delivery method, then payment. Product pages follow https://www.bigbang.hr/webshop/<slug>/<sku>. No login is mentioned in the guide, so guest checkout appears possible.",
+  "screen_tips": "Customer data fields are First name, Last name, Address, Location, Email and Phone. The Location field is an autocomplete: type a postal code or city and pick the matching suggestion from the dropdown, which then fills in zip code and city. Continue buttons read 'Nastavi na odabir načina dostave', then 'Nastavi na plaćanje', and the final button is 'Potvrdi i naruči'. On the payment step, bank transfer is preselected, so choose card or KEKS Pay explicitly if wanted."
+ },
+ {
+  "key": "bilbasen",
+  "name": "Bilbasen",
+  "url_prefixes": [
+   "bilbasen.dk/brugt/bil"
+  ],
+  "names": [
+   "bilbasen",
+   "bilbasen.dk"
+  ],
+  "planner_tips": "Open search pages directly with the make and model in the path, for example https://www.bilbasen.dk/brugt/bil/vw/id.4?pricefrom=150000&priceto=195000, where pricefrom and priceto are whole DKK amounts. Make and model slugs are lowercase, and the site may redirect to an internal model id, which is fine. Results show about 30 listings per page with a total count, so plan to page through with the next-page control until all results are seen. No login is needed to browse listings.",
+  "screen_tips": "Search results show listing cards with price, mileage, first registration and fuel type. Use the visible next-page control at the bottom of the results to go further, and wait for the listing set to change before reading the next page. Prices are in DKK and mileage uses a Danish thousands separator, so 76.500 km means 76,500 km. Equipment lists are not on the results page, so open a listing's detail page for features and verify battery or charging claims in the description against the exact variant and model year."
+ },
+ {
+  "key": "bilibili",
+  "name": "Bilibili",
+  "url_prefixes": [
+   "bilibili.com",
+   "space.bilibili.com",
+   "search.bilibili.com",
+   "t.bilibili.com",
+   "live.bilibili.com"
+  ],
+  "names": [
+   "bilibili",
+   "bili",
+   "b站",
+   "哔哩哔哩",
+   "bilibili.com"
+  ],
+  "planner_tips": "Search directly at https://search.bilibili.com/all?keyword={QUERY}, with result tabs like /video or /bangumi reached from the tab bar. Video pages are https://www.bilibili.com/video/{BV_ID}, and personal space is https://space.bilibili.com/{UID} with subpages like /dynamic, /upload, /favlist. Following feed is https://t.bilibili.com/, watch history is https://www.bilibili.com/account/history, and watch later is https://www.bilibili.com/watchlater/#/list; these and favorites, dynamics and messages need a logged-in account, while public pages work without login.",
+  "screen_tips": "Top nav holds 首页, 番剧, 直播, 游戏中心, 会员购, 漫画, 赛事, and the avatar menu at top right opens 动态, 收藏, 历史, 创作中心. On a video page, the toolbar under the player has 赞 (like), 投币 (coin), 收藏 (favorite) and 分享; allow a few seconds after load before those controls respond. Do not confuse 动态 (following feed at t.bilibili.com) with a user's own 动态 tab in their space. Coins (硬币) are free daily rewards, separate from paid B币."
+ },
+ {
+  "key": "booking-com",
+  "name": "Booking.com",
+  "url_prefixes": [
+   "booking.com"
+  ],
+  "names": [
+   "booking.com",
+   "booking",
+   "booking com"
+  ],
+  "planner_tips": "Search results open directly at https://www.booking.com/searchresults.html with query parameters ss (destination text), checkin and checkout as YYYY-MM-DD, group_adults, no_rooms, and selected_currency such as USD, for example ss=Paris&checkin=2026-05-01&checkout=2026-05-03&group_adults=2&no_rooms=1&selected_currency=USD. Sort with order=price or order=review_score and filter with nflt values such as fc=2 for free cancellation or class=4;class=5 for star rating. Hotel pages follow https://www.booking.com/hotel/{country_code}/{hotel-slug}.html and city pages follow https://www.booking.com/city/{country_code}/{city-slug}.html. Browsing is usually not blocked for a normal browser session, but the site may show a cookie consent banner for EU visitors.",
+  "screen_tips": "Accept the cookie consent banner first if it appears, using the Accept button, before interacting with the page. Results and prices load a few seconds after the page appears, so wait briefly before reading cards. Next-page navigation is on the results page and each page holds 25 results. Prices shown are per night unless the page says otherwise, and taxes may be listed separately near the price."
+ },
+ {
+  "key": "BOSS-zhipin",
+  "name": "BOSS直聘",
+  "url_prefixes": [
+   "zhipin.com",
+   "zhipin.com/web/geek"
+  ],
+  "names": [
+   "boss直聘",
+   "boss zhipin",
+   "bosszhipin",
+   "zhipin",
+   "boss直聘网"
+  ],
+  "planner_tips": "Job search is at https://www.zhipin.com/web/geek/jobs and works without login, and city pages use pinyin slugs such as https://www.zhipin.com/shanghai/. Job detail pages are at https://www.zhipin.com/job_detail/{JOB_ID}.html and company pages at https://www.zhipin.com/gongsi/{COMPANY_ID}~.html. Chat is at https://www.zhipin.com/web/geek/chat and requires login. Search filters on the job list are not reflected in the URL, so set them on the page.",
+  "screen_tips": "In the chat page's left panel, the filter tabs are 全部, 未读(N) and 新招呼, with a 更多 dropdown offering 仅沟通, 有交换, 有面试 and 不感兴趣. Click a conversation in the left list to open its message history on the right, and wait about 2 seconds for it to render. Never send a message unless the user explicitly asks you to. On job cards, salary digits render as unreadable symbols in the DOM, so read the salary visually from the screen."
+ },
+ {
+  "key": "browser-use-cloud",
+  "name": "Browser Use Cloud",
+  "url_prefixes": [
+   "cloud.browser-use.com"
+  ],
+  "names": [
+   "browser use cloud",
+   "browser-use cloud",
+   "browser use",
+   "browser-use"
+  ],
+  "planner_tips": "The dashboard root cloud.browser-use.com redirects to /signup when logged out, so log in first; /dashboard, /browsers, /profiles and /api-keys are unverified guesses, so check the sidebar after login rather than trusting those paths. Live browser sessions show a liveUrl on live.browser-use.com, which is a separate host from the dashboard. Billing and organisation/team admin are not covered by this site guide, and aggregate usage is not shown as a simple page.",
+  "screen_tips": "After login, navigate using the sidebar links rather than typed paths, since slugs other than /signup were not verified. Session and profile pages are per-item views reached from their lists. Cost figures appear as dollar amounts on each browser record, and a stopped session shows a finished time with no live link."
+ },
+ {
+  "key": "capterra",
+  "name": "Capterra",
+  "url_prefixes": [
+   "capterra.com"
+  ],
+  "names": [
+   "capterra",
+   "capterra.com"
+  ],
+  "planner_tips": "Product pages use the form capterra.com/p/{id}/{Slug}/ with reviews at /p/{id}/{Slug}/reviews/, pricing at /pricing/, and alternatives at /alternatives/; Slug is case-sensitive, so find the exact ID and slug from a category listing rather than guessing. Category pages are at capterra.com/{category}-software/, for example capterra.com/project-management-software/, with ?page=N for more results, and the full category list is at capterra.com/categories/. Site search via /search/?q= does not work, so browse categories or open product URLs directly. Reading public pages needs no login; only the review-writing flow and account areas require signing in.",
+  "screen_tips": "Use the category and product pages to find products, then open the Reviews tab for ratings and written reviews. Reviews show 25 per page, with page navigation at the bottom of the list. Ratings, review counts, and sentiment appear near the top of the product page. Some pages may show a Cloudflare verification challenge; wait for it to clear before reading the content."
+ },
+ {
+  "key": "centilebrain",
+  "name": "CentileBrain",
+  "url_prefixes": [
+   "centilebrain.org/#/model",
+   "centilebrain-app.shinyapps.io"
+  ],
+  "names": [
+   "centilebrain",
+   "centile brain",
+   "centilebrain normative",
+   "centilebrain z-scores"
+  ],
+  "planner_tips": "Open https://centilebrain.org/#/model to reach the tool; no login or account is needed. Choose a modality (Subcortical Volume, Cortical Thickness, or Surface Area) and a sex, then upload a single .xlsx file that follows the site's template for that modality and sex, which you must download from the site first. Compute can take 30 to 90 seconds, and results come back as a zip download containing per-subject z-score CSVs. Batch uploads of many subjects work in one run.",
+  "screen_tips": "The modality buttons and sex toggles sit at the top of the page and change the embedded app below them; after switching, wait a few seconds for the new app to load before interacting. The upload control, an email field (any valid-looking address works), and a Compute button are inside that embedded app, which may scroll out of view, so scroll to find them. Compute is done when the page shows 'Computation complete', and then a Download Results link appears to save the zip."
+ },
+ {
+  "key": "claude",
+  "name": "Claude",
+  "url_prefixes": [
+   "claude.ai"
+  ],
+  "names": [
+   "claude",
+   "claude ai",
+   "anthropic claude",
+   "claude desktop"
+  ],
+  "planner_tips": "Organization custom connectors are managed at claude.ai/admin-settings/connectors, which requires an Owner account on a Team or Enterprise plan; check the organization selector first. Personal claude.ai/settings/connectors may redirect to a modal saying connectors moved to Customize, which is not the admin page. Skills are at claude.ai/customize/skills, and an existing skill's page is claude.ai/customize/skills/<skill_id>, so find the ID from the current page; the contents view is that path with /contents appended.",
+  "screen_tips": "To add a custom connector, open Add, hover the Custom row, and choose Web; the dialog takes a name and MCP URL first, then a second step for auth, where OAuth with a pre-registered client uses Sign in now and Use your own OAuth client. An unauthenticated 401 from the MCP server is normal for OAuth. To update a skill, use the overflow menu's Replace option rather than Add, which creates a duplicate; after saving, reload and reopen Contents, check the version selector marks the new version current, and note the page may show an older version. Uploaded skills appear in Chat and Cowork mode, not necessarily in Code mode."
+ },
+ {
+  "key": "claude-ai",
+  "name": "Claude",
+  "url_prefixes": [
+   "claude.ai/share"
+  ],
+  "names": [
+   "claude",
+   "claude.ai",
+   "claude ai",
+   "anthropic claude"
+  ],
+  "planner_tips": "Shared conversation links look like claude.ai/share/<uuid>. The share page only shows the chat text when the browser is signed into claude.ai, so use a Chrome profile that is already logged in. Live chats at claude.ai/chat/<uuid> are a different page and are not covered by these tips.",
+  "screen_tips": "If the share page loads but the conversation body is blank, the session is logged out, so sign in first. The conversation title is in the page header area at the top, not in the browser tab title, which just says Claude. Messages alternate as separate blocks with no wrapper per turn, and user messages may show a duplicated preview heading above the text. Attachments and artifacts in a shared chat are not shown in full on the page."
+ },
+ {
+  "key": "coingecko",
+  "name": "CoinGecko",
+  "url_prefixes": [
+   "coingecko.com",
+   "api.coingecko.com"
+  ],
+  "names": [
+   "coingecko",
+   "coin gecko",
+   "crypto prices",
+   "coingecko api"
+  ],
+  "planner_tips": "Human-facing pages live on coingecko.com; coin pages follow coingecko.com/en/coins/{coin-slug} (for example coingecko.com/en/coins/bitcoin), and the homepage lists top coins by market cap. Search is available from the top bar at coingecko.com and results show a coin's rank and price. No login is needed to view prices, charts, or coin details.",
+  "screen_tips": "The main coin list is a table sorted by market cap rank, with price, 1h, 24h, 7d, market cap and volume columns; click a column header to sort. On a coin page, the price and 24h change sit at the top, with the chart below and currency or timeframe toggles above it. Search results open a dropdown under the search box, so click the matching coin name rather than pressing Enter. Dismiss any cookie or promotional banner before reading the numbers."
+ },
+ {
+  "key": "coinmarketcap",
+  "name": "CoinMarketCap",
+  "url_prefixes": [
+   "coinmarketcap.com"
+  ],
+  "names": [
+   "coinmarketcap",
+   "coin market cap",
+   "cmc",
+   "coinmarketcap.com"
+  ],
+  "planner_tips": "Coin pages open at coinmarketcap.com/currencies/{slug}/ (for example /currencies/bitcoin/), and the homepage at coinmarketcap.com/ lists the top 100 coins. Public market data needs no login. The pro-api subdomain requires a paid key, so avoid it.",
+  "screen_tips": "On a coin page, price and stats such as market cap, volume and supply appear near the top, and the 24h and 7d percent changes sit beside the price. Search is at the top of the page and lists matching coins as you type. Numbers are in USD unless a currency selector shows otherwise."
+ },
+ {
+  "key": "coursera",
+  "name": "Coursera",
+  "url_prefixes": [
+   "coursera.org",
+   "coursera.org/search",
+   "coursera.org/learn"
+  ],
+  "names": [
+   "coursera"
+  ],
+  "planner_tips": "Open https://www.coursera.org/search?query=KEYWORD to search courses by keyword; the results load client-side, so wait a few seconds before reading them. Individual courses are at https://www.coursera.org/learn/COURSE-SLUG. Course pages show content without login, while enrolling and certificates require a Coursera account login.",
+  "screen_tips": "Search results appear as course cards after a short async load, so wait before judging the page is empty. The search box is at the top of the page and accepts typed queries with Enter. A course page's title and details are visible on screen without signing in; enroll buttons may prompt for login."
+ },
+ {
+  "key": "craigslist",
+  "name": "Craigslist",
+  "url_prefixes": [
+   "craigslist.org",
+   "sfbay.craigslist.org",
+   "newyork.craigslist.org",
+   "chicago.craigslist.org",
+   "losangeles.craigslist.org",
+   "seattle.craigslist.org",
+   "boston.craigslist.org",
+   "miami.craigslist.org",
+   "denver.craigslist.org",
+   "austin.craigslist.org",
+   "portland.craigslist.org",
+   "sandiego.craigslist.org",
+   "phoenix.craigslist.org"
+  ],
+  "names": [
+   "craigslist",
+   "craig's list",
+   "craigslist classifieds"
+  ],
+  "planner_tips": "Open search pages directly at https://{city}.craigslist.org/search/{category}?query=KEYWORDS, using city subdomains such as sfbay, newyork, chicago, losangeles, seattle, boston, miami, denver, austin, portland, sandiego, or phoenix. Category codes include sss (for sale), ela (electronics), fua (furniture), cto (cars by owner), apa (apartments), roo (rooms), jjj (jobs), bbb (services), and eve (events). Add filters as query parameters: min_price, max_price, sort=date, sort=priceasc, sort=pricedsc, and condition=10 through 60. Browsing and searching need no login, but posting or messaging does.",
+  "screen_tips": "Search results list listings with title, price, and neighborhood; click a title to open the full post with price, description, and photos. Results may show a bit more than the filters imply, so check the price on each post. Pagination appears as next and previous arrows at the top or bottom of results, and the page count updates when you move. Contact buttons reveal a reply option that may require a login or a CAPTCHA, so expect a verification step before the reply shows."
+ },
+ {
+  "key": "crossref",
+  "name": "CrossRef",
+  "url_prefixes": [
+   "api.crossref.org",
+   "doi.org"
+  ],
+  "names": [
+   "crossref",
+   "crossref api",
+   "doi lookup"
+  ],
+  "planner_tips": "CrossRef is a metadata database with no login; the browser is not needed for it, but a DOI can be opened directly at https://doi.org/DOI (for example https://doi.org/10.1038/s41586-021-03819-2) to reach the publisher page. Search works at https://api.crossref.org/works?query=KEYWORDS, and the public search UI is not a page to use for bulk results. Journal lookups by ISSN are at https://api.crossref.org/journals/ISSN.",
+  "screen_tips": "The site has no real interactive UI for this data; the API returns raw JSON in the browser, so read the text on screen rather than looking for buttons. Titles are lists, so the first entry is the main title. If a DOI is invalid the page shows a 404 error rather than a result."
+ },
+ {
+  "key": "ctrip",
+  "name": "Ctrip",
+  "url_prefixes": [
+   "hotels.ctrip.com"
+  ],
+  "names": [
+   "ctrip",
+   "trip.com",
+   "携程",
+   "ctrip hotels",
+   "携程酒店"
+  ],
+  "planner_tips": "Open https://hotels.ctrip.com/hotels/list?flexType=1&cityId=2&provinceId=0&districtId=0&countryId=1&checkin=YYYY-MM-DD&checkout=YYYY-MM-DD for domestic hotel prices (cityId 2 is Shanghai, 1 Beijing, 32 Guangzhou, 30 Shenzhen); prices show without login when the full parameter set is present. Do not use a shortened URL with city= instead of cityId=, since that redirects to passport.ctrip.com login. If unsure of a cityId, start at https://hotels.ctrip.com/ and search the city there, then read the resulting list URL. Hotel detail pages open at https://hotels.ctrip.com/hotel/<hotelId>.html?checkin=...&checkout=... without login.",
+  "screen_tips": "The list is a set of hotel cards with names, scores, and a price pair like ¥original ¥current followed by 起 meaning from-price; the current price is the lower one. Review counts such as 1,234条点评 are not prices. The homepage defaults to the overseas tab with no prices, so switch to domestic results or use the list URL. The search button on the homepage is a div, so click it by position rather than relying on a button. If the page moves to a login screen, stop and ask the user rather than entering credentials."
+ },
+ {
+  "key": "dashboard",
+  "name": "Stripe Dashboard",
+  "url_prefixes": [
+   "dashboard.stripe.com"
+  ],
+  "names": [
+   "stripe",
+   "stripe dashboard",
+   "stripe dashboard"
+  ],
+  "planner_tips": "The guide only points to a separate page about test mode and sandboxes, so no direct URLs or login details are given here.",
+  "screen_tips": "The guide gives no on-screen details for this site beyond a pointer to test mode and sandboxes."
+ },
+ {
+  "key": "dev-to",
+  "name": "DEV Community",
+  "url_prefixes": [
+   "dev.to"
+  ],
+  "names": [
+   "dev.to",
+   "dev community",
+   "dev",
+   "forem"
+  ],
+  "planner_tips": "Public articles open at dev.to/{username}/{slug}, and a user's profile is at dev.to/{username}. Reading articles, tags, profiles and comments needs no login. Listing your own feed with the state=all filter requires logging in.",
+  "screen_tips": "Articles can have no cover image, so do not expect a header picture on every post. Comments are nested, so replies sit under their parent comment. Reaction and comment counts are on the article list and page. Timestamps like published dates may show only month and day with no year."
+ },
+ {
+  "key": "doordash",
+  "name": "DoorDash",
+  "url_prefixes": [
+   "doordash.com"
+  ],
+  "names": [
+   "doordash",
+   "door dash"
+  ],
+  "planner_tips": "Search results are relative to the delivery address on the account, so check the ZIP shown before trusting results. Store pages open directly at doordash.com/convenience/store/<store_id>, and a single product opens at doordash.com/convenience/store/<store_id>/product/<item_id>, which redirects to the store with that product's panel open. The cross-store product page is doordash.com/browse/products/<product_id>. Searching is done at doordash.com/search/store/<query>/, which loads results server-side. Browsing needs a logged-in account.",
+  "screen_tips": "Search results load on the search page and group into sections like Get it now, Top savings, and All results, then one carousel per store; the same item can appear in several sections. Product cards show price, a stock or discount badge, and a rating; clicking a card opens a product modal showing the price at each nearby store and the delivery time. Results are loose matches, so compare product names yourself. If the page shows a login prompt or bot check, stop and report it.}"
+ },
+ {
+  "key": "duckduckgo",
+  "name": "DuckDuckGo",
+  "url_prefixes": [
+   "duckduckgo.com",
+   "api.duckduckgo.com"
+  ],
+  "names": [
+   "duckduckgo",
+   "duck duck go",
+   "ddg"
+  ],
+  "planner_tips": "The guide covers only the DuckDuckGo Instant Answer API, a scripted JSON endpoint that is not a search engine, so there are no browser-facing tips for planning page URLs. For ordinary web searches, open duckduckgo.com/?q=your+query in a browser instead.",
+  "screen_tips": "The source guide advises against using a browser for this API, so no on-screen tips apply. Normal duckduckgo.com search pages need no login."
+ },
+ {
+  "key": "ebay",
+  "name": "eBay",
+  "url_prefixes": [
+   "ebay.com",
+   "ebay.com/sch",
+   "ebay.com/itm"
+  ],
+  "names": [
+   "ebay",
+   "e-bay"
+  ],
+  "planner_tips": "Search directly with a URL like https://www.ebay.com/sch/i.html?_nkw=QUERY, using plus signs for spaces. Add LH_BIN=1 for Buy It Now only, LH_Auction=1 for auctions, LH_ItemCondition=1000 for new items, and _sop=15 to sort by lowest price plus shipping. Item pages are at https://www.ebay.com/itm/LISTING_ID. Browsing and searching need no login, but buying requires an eBay account sign-in.",
+  "screen_tips": "Pages are ordinary eBay search and item pages, with results as cards showing title, price, and a strikethrough original price when discounted. Prices appear in the visitor's local currency, so read the currency symbol instead of assuming dollars. If the page says Pardon Our Interruption or shows an Access Denied error, stop, wait a minute or two, and reload rather than retrying quickly. A 'No exact matches found' note means the results are loose substitutes, not what was searched for."
+ },
+ {
+  "key": "etsy",
+  "name": "Etsy",
+  "url_prefixes": [
+   "etsy.com"
+  ],
+  "names": [
+   "etsy",
+   "etsy.com"
+  ],
+  "planner_tips": "Open search pages directly with https://www.etsy.com/search?q=keywords&explicit=1, using + for spaces, and add &order=price_asc, &order=newest, or &min_price and &max_price for filtering. Listing pages look like https://www.etsy.com/listing/ID/slug, and shop pages look like https://www.etsy.com/shop/ShopName with exact capitalization. Etsy sometimes shows a bot-check challenge to automated visitors, so expect a real browser session to be needed. Buying, favoriting, or messaging sellers requires logging in.",
+  "screen_tips": "Search results show listing cards with title, price, and shop name, and clicking a card opens its listing page. Shop listings load more items by scrolling down or pressing a Load more button rather than through a numbered pager. Pages render slowly after load, so wait a few seconds before reading prices or titles. Ads in results are marked with a sponsored label and are not regular matches."
+ },
+ {
+  "key": "eventbrite",
+  "name": "Eventbrite",
+  "url_prefixes": [
+   "eventbrite.com"
+  ],
+  "names": [
+   "eventbrite",
+   "event brite"
+  ],
+  "planner_tips": "Browse listings directly at https://www.eventbrite.com/d/{state}--{city}/{category}/ such as https://www.eventbrite.com/d/ca--san-francisco/tech/, with optional filters like /free--events/ or /events--this-weekend/ in place of the category. Date range can be added as ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD, and results continue on ?page=2. Individual event pages use the form https://www.eventbrite.com/e/{slug}-tickets-{id}. Browsing and buying tickets works without login, but purchasing or viewing account details requires signing in.",
+  "screen_tips": "Event cards on listing pages link to event detail pages, where date, venue, price, and the ticket selection sit near the top. Date filters narrow results but may still show events outside the chosen range, so check each event's date on its page. Free events show a price of zero rather than a blank field. A ticket selection only takes effect after the quantity is changed with its plus or minus control, and the checkout step appears after clicking the ticket button."
+ },
+ {
+  "key": "expedia",
+  "name": "Expedia",
+  "url_prefixes": [
+   "expedia.com",
+   "expedia.mx",
+   "expedia.co.in",
+   "expedia.ca"
+  ],
+  "names": [
+   "expedia",
+   "expedia hotels",
+   "expedia flights"
+  ],
+  "planner_tips": "Build searches with URL parameters instead of the UI: hotel search at https://www.expedia.co.in/Hotel-Search?destination={city or hotel}&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&rooms=1&adults=N&children=N&childrenAges=5,7 and flight search at https://www.expedia.ca/Flights-Search?flight-type=roundtrip&mode=search&trip=roundtrip&leg1=from:YYZ,to:ICN,departure:2027/07/03TANYT&leg2=from:ICN,to:YYZ,departure:2027/07/25TANYT&passengers=adults:1&options=cabin:economy&sort=price%3Aa. Property pages can be opened as https://www.expedia.mx/{slug}.h{hotelId}.Informacion-Hotel with optional startDate, endDate and rm1 query parameters, and the slug is cosmetic. Expedia may block datacenter IPs and can show captchas, so a logged-in or residential browser session is more reliable.",
+  "screen_tips": "Do not use the date picker; it closes on coordinate clicks, so set dates through the URL instead. The travellers panel and Done button respond better to direct element clicks than to coordinate clicks. Expedia's stop checkboxes are exclusive, so nonstop and 1 stop must be clicked one at a time, waiting several seconds for each reload. Do not click Search on a page that was opened with a prefilled search URL, since that resets filters; the price filter applies after pressing Enter in the max price field."
+ },
+ {
+  "key": "facebook",
+  "name": "Facebook Groups and Pages",
+  "url_prefixes": [
+   "facebook.com/groups",
+   "facebook.com/pages",
+   "facebook.com"
+  ],
+  "names": [
+   "facebook",
+   "fb",
+   "facebook groups",
+   "facebook pages",
+   "fb group",
+   "fb page"
+  ],
+  "planner_tips": "Group feeds open at facebook.com/groups/{slug_or_id}/?sorting_setting=CHRONOLOGICAL so posts are sorted newest first; the joined-groups list is at facebook.com/groups/joins/. Page posts open at facebook.com/{vanity_or_id}/posts, and Page search is facebook.com/search/pages/?q={query}. Viewing a group requires being logged in and a member of that group, and logged-out views show a stripped page with no posts. Pages are public but logged-in is recommended, since logged-out views add login prompts that interrupt scrolling.",
+  "screen_tips": "Posts are div[role=article] blocks; click a 'See more' control on long posts before reading their text. Feeds unload posts as you scroll, so read them as you scroll rather than after. A login, checkpoint, or device-verification screen means stop and let the user handle it. Using the page as a logged-in member is the normal mode, and there is no post, reply, or message action in this guide to rely on."
+ },
+ {
+  "key": "feishu",
+  "name": "Feishu Docs",
+  "url_prefixes": [
+   "feishu.cn/docx"
+  ],
+  "names": [
+   "feishu",
+   "feishu docs",
+   "feishu document",
+   "lark docs",
+   "lark document"
+  ],
+  "planner_tips": "Feishu document URLs look like https://<tenant>.feishu.cn/docx/<token>, and the tenant name is the first hostname label. Sibling documents in the same wiki are linked inside the body text, so open them by clicking those links rather than guessing URLs. Use an already logged-in browser session; no login steps are needed.",
+  "screen_tips": "The document content scrolls inside an inner div, not the window, so scroll that container and expect content to render slowly, waiting about a second after each scroll. Tables lose their column structure in plain text, so read tables from screenshots. Tables and images only appear reliably when scrolled into view, and some fixed UI text such as Share, Comments, and Help Center is page chrome, not document content."
+ },
+ {
+  "key": "figma",
+  "name": "Figma",
+  "url_prefixes": [
+   "figma.com",
+   "figma.com"
+  ],
+  "names": [
+   "figma"
+  ],
+  "planner_tips": "Figma file comments are shown on the file's design page, reached via a figma.com/design/<FILE_KEY>/<slug> share URL; the file key is the middle segment of that URL. Opening a design URL may bounce to an 'Open in Figma app' interstitial, and the user may need to sign in to Figma to see comments.",
+  "screen_tips": "If a 'Opened in Figma app' or 'Open here instead' interstitial appears, click 'Open here instead' to continue in the browser. Comments are listed in the comments panel, and a comment's resolved state is shown as a check mark on its thread; replies appear nested under their parent thread."
+ },
+ {
+  "key": "flighthub",
+  "name": "FlightHub",
+  "url_prefixes": [
+   "flighthub.com/flight/search",
+   "flighthub.com"
+  ],
+  "names": [
+   "flighthub",
+   "flight hub",
+   "flighthub.com"
+  ],
+  "planner_tips": "Open the search page directly at https://www.flighthub.com/flight/search with query parameters seg0_from and seg0_to for airport codes, seg1_from and seg1_to for the return leg (reversed), seg0_date and seg1_date as YYYY-MM-DD, type=roundtrip, num_adults, seat_class=Economy, currency (usd or cad), and order_by=cheapest, fastest or best. Example: seg0_from=YYZ&seg0_to=ICN&seg1_from=ICN&seg1_to=YYZ. Searching does not require a login. The site sits behind Cloudflare, so a normal browser session is needed.",
+  "screen_tips": "The home page search form's date picker does not respond to clicks, so avoid it and use the search URL instead. Airport fields accept typed codes, and a dropdown may appear that needs Tab or Enter before moving on. The search button is a div, not a real button. Results load over 10 to 30 seconds behind a searching dialog; wait for it to close, then read the flight cards showing airline, times, stops, duration, price and a Select button."
+ },
+ {
+  "key": "flipkart",
+  "name": "Flipkart",
+  "url_prefixes": [
+   "flipkart.com"
+  ],
+  "names": [
+   "flipkart"
+  ],
+  "planner_tips": "Search directly via https://www.flipkart.com/search?q=QUERY with spaces as + and optional price filters like &p%5B%5D=facets.price_range.to%3D500 for a maximum price, plus &sort=price_asc to sort by price. Category browsing works at paths like https://www.flipkart.com/toys/pr?sid=tng. Changing the delivery pincode on some product pages requires logging in, so search results show the default delivery estimate instead.",
+  "screen_tips": "A login/signup popup appears on every new visit and blocks everything until closed; close its X button at the top right of the modal or press Escape. Product pages may show a zoom image overlay that swallows clicks, so press Escape to clear it before retrying. Price and rating filters are in the left sidebar, and clicking them re-renders the list, so check the results update before continuing. Prices use the rupee sign with Indian comma grouping, such as ₹1,23,456."
+ },
+ {
+  "key": "framer",
+  "name": "Framer",
+  "url_prefixes": [
+   "framer.com/projects"
+  ],
+  "names": [
+   "framer",
+   "framer editor",
+   "framer.com"
+  ],
+  "planner_tips": "Project editor URLs look like framer.com/projects/<project-slug>-<id>, and the user must already be logged in with the project open. The Publish button only appears after selecting a page in the Pages tab, so plan to open the Pages tab and pick the page before publishing. Changes to page settings, SEO fields, redirects, font or image uploads, drag-and-drop layout, and smart component variants cannot be done reliably by an agent and should be handed to the user as step-by-step instructions.",
+  "screen_tips": "Use the left rail tabs (Pages, Layers, Assets) to navigate; the Publish button is in the top-right and is only visible when a page is selected in the Pages tab, not while the code editor is open. Opening a code file requires a double-click on its asset row, and a single click only selects it. Pasting code into the Monaco editor works best by selecting all and pasting, then waiting a few seconds before saving, and check for red error underlines afterwards. Live site changes may take 30 to 60 seconds to appear, so add a query parameter like ?v=timestamp when checking the published page."
+ },
+ {
+  "key": "fred",
+  "name": "FRED",
+  "url_prefixes": [
+   "fred.stlouisfed.org"
+  ],
+  "names": [
+   "fred",
+   "federal reserve economic data",
+   "st louis fed data",
+   "fred economic data"
+  ],
+  "planner_tips": "Open https://fred.stlouisfed.org/series/SERIESID for a single series page, such as /series/GDP or /series/UNRATE, and use https://fred.stlouisfed.org/search?st=QUERY to search series by keyword. Series IDs are exact and case-sensitive, so use uppercase like GDP, CPIAUCSL, FEDFUNDS, DGS10 or SP500. No login is needed to view public series pages, but downloading data or using the API key requires a free registered St. Louis Fed account.",
+  "screen_tips": "On a series page the chart sits at the top, with date-range buttons such as 1Y, 5Y, 10Y and Max above it and a Download control to export data. Data values appear in the observations table lower on the page, and it can be sorted or switched between frequencies. Typing an ID directly in the search box and pressing Enter opens the matching series page."
+ },
+ {
+  "key": "frontier",
+  "name": "Frontier Airlines",
+  "url_prefixes": [
+   "flyfrontier.com",
+   "booking.flyfrontier.com"
+  ],
+  "names": [
+   "frontier",
+   "frontier airlines",
+   "flyfrontier"
+  ],
+  "planner_tips": "Start at https://www.flyfrontier.com/ and search with the homepage widget; deep links into booking.flyfrontier.com return 404, so do not guess booking URLs. The booking flow runs in order: Select (fares), Passengers, Bundles, SeatMap, Bags, Extras, then Payment. Stop before final payment submission unless the user authorizes that specific purchase. Membership pricing (Discount Den) is not granted just by declining a membership upsell, so choose the fare matching the user's membership and verify the final total before paying.",
+  "screen_tips": "On the homepage, pick one-way, type the airport in the origin and destination fields and choose the suggestion from the list, then set the date with the date picker rather than typing it, and click the Search button. On the fare page, click the label around the fare, not just the radio, then press the Continue button for that fare type; if the Discount Den offer appears, close it with its No Thanks button, since the X icon does nothing. Modals on bundles, seats, bags and extras are dismissed by their 'continue without' buttons; the Extras page needs both the free agent-assist option and the decline option in the disruption assistance frame selected before continuing. Payment fields are ordinary inputs, but the expiration year uses two digits and the card number auto-formats dashes."
+ },
+ {
+  "key": "furnishedfinder",
+  "name": "Furnished Finder",
+  "url_prefixes": [
+   "furnishedfinder.com",
+   "furnishedfinder.com/housing",
+   "furnishedfinder.com/property"
+  ],
+  "names": [
+   "furnished finder",
+   "furnishedfinder"
+  ],
+  "planner_tips": "City search pages use the form www.furnishedfinder.com/housing/us--<state>--<city-slug>, for example www.furnishedfinder.com/housing/us--ca--san-francisco; the URL /housing/San-Francisco-CA redirects to the homepage, so do not use it. Each listing is at www.furnishedfinder.com/property/<listingId>, where the id looks like 1044041_1. Search results show only the first 72 listings per view, so split a wide area into smaller map boxes and open each one, using a map parameter with min and max latitude and longitude and searchType=REGIONAL. Browsing and property pages are anonymous, but sending a booking inquiry requires an account.",
+  "screen_tips": "Result cards list the rent, bedrooms, and an Available or Recently added badge; filter to entire units because rooms are mixed into results. Listing locations are fuzzed by up to about 0.5 km, so confirm the neighborhood from the description or the Closest facilities distances on the property page. Titles can overstate bedroom counts, such as '1BR + Office' being listed as two bedrooms, so check the details. The Calendar updated date shows how current the landlord's availability is, and many older dates indicate stale listings. The similar rentals strip at the bottom of a property page can show listings outside the area you searched."
+ },
+ {
+  "key": "g2",
+  "name": "G2",
+  "url_prefixes": [
+   "g2.com/products",
+   "g2.com/categories",
+   "g2.com/compare"
+  ],
+  "names": [
+   "g2",
+   "g2.com",
+   "g2 reviews",
+   "g2 crowd"
+  ],
+  "planner_tips": "Open product reviews directly at www.g2.com/products/{slug}/reviews, using a lowercase hyphenated product slug such as slack or microsoft-teams; add ?page=2 for more reviews. Category listings are at www.g2.com/categories/{slug}, and comparisons at www.g2.com/compare/{slug1}-vs-{slug2}. Reading reviews and product pages needs no login, but scrolling far past the first few reviews triggers a sign-in modal, so use ?page=N instead.",
+  "screen_tips": "The site is protected by an invisible bot check that resolves on its own; wait about 5 seconds after load and confirm the tab title is not just \"g2.com\" before reading content. If a sign-in overlay appears after scrolling, close it with its X button and continue using page-number URLs. Review cards show star rating, title, pros and cons text, reviewer job title and date, and the rating breakdown is near the top of the reviews page. Pages can take a few seconds to fill in, so wait and re-check if the content looks empty."
+ },
+ {
+  "key": "gemini",
+  "name": "Gemini Spark skills",
+  "url_prefixes": [
+   "gemini.google.com/spark"
+  ],
+  "names": [
+   "gemini spark",
+   "gemini skills",
+   "spark skills",
+   "gemini"
+  ],
+  "planner_tips": "Open gemini.google.com/spark/skills to find and edit skills. Editing requires being logged into Gemini. To recover an earlier skill version, open the completed Spark conversation that created or last edited that skill, since its confirmation cards keep the skill content.",
+  "screen_tips": "Find the skill card whose title exactly matches the intended name, since a partial match can select a similarly named skill. The editor has Skill description and Skill instructions fields plus Save skill and Skills, go back buttons. After saving, wait for the Skill saved notice to disappear before going back, or a misleading Leave without saving dialog may appear; reopen the skill afterward to verify the saved text."
+ },
+ {
+  "key": "genius",
+  "name": "Genius",
+  "url_prefixes": [
+   "genius.com",
+   "api.genius.com"
+  ],
+  "names": [
+   "genius",
+   "genius lyrics",
+   "genius.com"
+  ],
+  "planner_tips": "Song lyrics pages use the form genius.com/{Artist}-{song-slug}-lyrics, and artist pages use genius.com/artists/{Artist}. Search results are rendered client-side, so for a search open genius.com and type the query into the search box rather than relying on a /search?q= URL, which shows unrelated trending songs. No login is needed to read songs, lyrics, or artist pages; login is only needed for personal features like library, editing, or annotation tools.",
+  "screen_tips": "The search box is at the top of the page; typing a query shows a dropdown of matching songs, artists, and albums to click. Lyrics are shown in blocks with section headers like [Verse 1] and [Chorus], and annotated words are highlighted and clickable to open annotation popups. Song pages list the primary album under the song details, and the album shown there may be a compilation rather than the original release. Pressing Enter in the search box runs the full search and shows result sections for each type."
+ },
+ {
+  "key": "github",
+  "name": "GitHub",
+  "url_prefixes": [
+   "github.com"
+  ],
+  "names": [
+   "github",
+   "github.com",
+   "git hub"
+  ],
+  "planner_tips": "Repo pages live at github.com/owner/repo and the trending page at github.com/trending, optionally github.com/trending/python?since=weekly. Starring, watching, and other repo changes require the user to be logged in to GitHub. Read-only repo facts like stars and forks are easiest to read from the public page or the repo's REST API rather than the rendered DOM.",
+  "screen_tips": "On a repo page the Star and Watch buttons sit in the header at the top right; the page may show a second hidden copy of the Star button in a sticky header, so use the visible one. Clicking the visible Star button in the page may not register, so check the result by reloading and seeing whether the button now reads Unstar or Starred. Trending repos appear as cards with the repo name as a link, a description, language, total stars, and stars gained in the period. The star count inside a button can lag briefly after an action, so wait about a second and scroll to the top before judging whether it worked."
+ },
+ {
+  "key": "glassdoor",
+  "name": "Glassdoor",
+  "url_prefixes": [
+   "glassdoor.com"
+  ],
+  "names": [
+   "glassdoor"
+  ],
+  "planner_tips": "Open company reviews at glassdoor.com/Reviews/{Company-slug}-Reviews-E{employer_id}.htm, for example glassdoor.com/Reviews/Google-Reviews-E9079.htm, and the overview at glassdoor.com/Overview/Working-at-{Company-slug}-EI_IE{employer_id}.htm. Job search works with glassdoor.com/Job/jobs.htm?sc.keyword=software+engineer, adding &locT=C&locKeyword={city} for a city or &remoteWorkType=1 for remote, and &p=2 for later pages. Salary pages use glassdoor.com/Salaries/{role-slug}-salary-SRCH_KO0,{length of role slug}.htm. Many pages show only a limited preview without a sign-in.",
+  "screen_tips": "A sign-in modal appears on reviews and salary pages as you scroll, so close it with its X button before scrolling further; the X may fall off screen once you scroll. A cookie consent banner may cover the page at first, so accept or dismiss it. The page may briefly show a Cloudflare security check titled Security before the real content loads; wait a few seconds and reload if it persists. Job cards are listed on the left with details on the right, and clicking a card updates the right panel."
+ },
+ {
+  "key": "gmail",
+  "name": "Gmail",
+  "url_prefixes": [
+   "mail.google.com"
+  ],
+  "names": [
+   "gmail",
+   "google mail"
+  ],
+  "planner_tips": "Open https://mail.google.com and make sure the account is already logged in. Compose uses the left-rail Compose button or the 'c' shortcut, so planners should not expect a direct compose URL to be reliable.",
+  "screen_tips": "Pressing 'c' opens a compose window with the To field focused. Do not press Tab between fields, since Tab inserts a tab character into To; click the Subject and body fields instead. Minimized drafts appear as small bars at the bottom of the page, so act only on the large open compose window. Recipients become chips once focus leaves the To field, and the Send button is in the compose window's bottom bar; a 'Message sent' toast confirms sending.}"
+ },
+ {
+  "key": "goodreads",
+  "name": "Goodreads",
+  "url_prefixes": [
+   "goodreads.com"
+  ],
+  "names": [
+   "goodreads",
+   "good reads"
+  ],
+  "planner_tips": "Search books at goodreads.com/search?q=QUERY&search_type=books, and book pages open at goodreads.com/book/show/BOOK_ID with the numeric ID from the URL. Author pages are at goodreads.com/author/show/AUTHOR_ID and list lists at goodreads.com/list/show/LIST_ID; the browsing needs no login.",
+  "screen_tips": "Search results show each book's title, author, average rating and rating count, and clicking a title opens its book page. Book pages show ratings, genres, description and series near the top, and the description may need a 'more' click to expand. Confirm you are on the intended book by checking the title and author before acting."
+ },
+ {
+  "key": "google",
+  "name": "Google Flights",
+  "url_prefixes": [
+   "google.com/travel/flights"
+  ],
+  "names": [
+   "google flights",
+   "google flight search"
+  ],
+  "planner_tips": "Open https://www.google.com/travel/flights?tfs=<encoded>&hl=en&curr=USD where tfs encodes the search; the tfs value is a base64 blob, so for one-way or round trip trips, a simpler route is typing airports and dates into the form at google.com/travel/flights. Multi-city searches need trip type set to multi-city with one leg per segment. No login is needed to search or view prices.",
+  "screen_tips": "The first results page shows only leg 1 and each price is labelled entire trip, which is an estimate that can be lower than any bookable total, so click a leg 1 row and read the leg 2 page for the real number. After clicking through, wait several seconds for the list to load before concluding there are no flights. Use the Sorted by control and choose Price, then confirm the sort label changed. Check cabin suffixes like Economy + Premium Economy on each row before quoting a fare, and confirm the passenger count and total on the final page."
+ },
+ {
+  "key": "google-sheets",
+  "name": "Google Sheets",
+  "url_prefixes": [
+   "docs.google.com/spreadsheets"
+  ],
+  "names": [
+   "google sheets",
+   "sheets",
+   "google spreadsheets",
+   "spreadsheet"
+  ],
+  "planner_tips": "Open spreadsheets at docs.google.com/spreadsheets/d/<id>/edit and log in with the Google account first, since editing and CSV export need an authorized session. To verify written values, open docs.google.com/spreadsheets/d/<id>/export?format=csv&gid=<gid> and check the contents; an account chooser or login page means the session is not authorized.",
+  "screen_tips": "Autocomplete can silently change a typed text value: a suggested remainder from the same column is selected, and Tab or Enter commits it, so press Delete after typing a text value and before Tab or Enter. Do not press Delete after the cell is committed, since it may clear the selected cell. Navigate to a cell by typing its address (for example A2) in the Name Box at the top left and pressing Enter rather than clicking grid coordinates. Verify each entered value by reading the cell back, including numbers, dates, and URLs, because a wrong autocomplete value looks like a successful entry."
+ },
+ {
+  "key": "gutenberg",
+  "name": "Project Gutenberg",
+  "url_prefixes": [
+   "gutenberg.org",
+   "gutenberg.org/ebooks"
+  ],
+  "names": [
+   "project gutenberg",
+   "gutenberg",
+   "gutenberg library"
+  ],
+  "planner_tips": "Search the catalog at gutenberg.org/ebooks/search/?query=TERMS&sort_order=downloads, or use query prefixes like author:dickens or title:... in the same query box. Open a book directly at gutenberg.org/ebooks/ID using its numeric ID, and read the plain text at gutenberg.org/ebooks/ID.txt.utf-8. Browse a genre shelf at gutenberg.org/ebooks/bookshelf/ID. No login is needed for reading or downloading.",
+  "screen_tips": "Search results show book titles and authors as links; click the title to open the book page with its download formats listed. The plain-text link is labeled Plain Text UTF-8 and opens the full book text in the browser. Results show 25 per page, with a next link at the bottom to continue."
+ },
+ {
+  "key": "hackernews",
+  "name": "Hacker News",
+  "url_prefixes": [
+   "news.ycombinator.com"
+  ],
+  "names": [
+   "hacker news",
+   "hn",
+   "ycombinator",
+   "y combinator news",
+   "ycombinator news"
+  ],
+  "planner_tips": "Open https://news.ycombinator.com for the front page and https://news.ycombinator.com/?p=2 for later pages; no login is needed for page 2, but page 3 and beyond require a login. For keyword searches, use https://hn.algolia.com/?q=KEYWORD (add &type=story or &sort=byDate for story results sorted by date). Item threads open at https://news.ycombinator.com/item?id=ID.",
+  "screen_tips": "The front page lists stories in rank order, each with a title link, a points count, and a comments link at the bottom of its row; job posts have no points or author. Click the comments link to open a thread, where all comments load on one page with no pagination. Titles can look odd in raw text because of HTML entities, but they display correctly on screen. Hacker News has no JavaScript-dependent loading, so a page is ready as soon as it appears and clicks give instant results."
+ },
+ {
+  "key": "howlongtobeat",
+  "name": "HowLongToBeat",
+  "url_prefixes": [
+   "howlongtobeat.com"
+  ],
+  "names": [
+   "howlongtobeat",
+   "how long to beat",
+   "hltb",
+   "howlongtobeat.com"
+  ],
+  "planner_tips": "Game pages open at howlongtobeat.com/game/{game_id} using a numeric ID, not a slug, so search first to find the ID. Site search is at howlongtobeat.com with the query typed into the search box on the home page. No login is needed to view completion times.",
+  "screen_tips": "Completion times are shown as Main Story, Main + Extras, and Completionist, in hours. A time of blank or zero means no submissions exist for that category. Search results mix base games with DLC and expansions, so check the type label before picking a result. The top result is usually the intended game when results are sorted by popularity."
+ },
+ {
+  "key": "hubspot",
+  "name": "HubSpot",
+  "url_prefixes": [
+   "app-na1.hubspot.com/private-apps",
+   "app-na2.hubspot.com/private-apps",
+   "app-eu1.hubspot.com/private-apps"
+  ],
+  "names": [
+   "hubspot",
+   "hubspot private app",
+   "hubspot webhooks"
+  ],
+  "planner_tips": "Open https://app-<region>.hubspot.com/private-apps/{portalId}/{appId}/edit to edit a Private App's webhook subscriptions, where region is na1, na2, eu1 and so on; the read-only https://app-<region>.hubspot.com/private-apps/{portalId}/{appId}/webhooks page cannot create subscriptions. Use the edit page's Webhooks tab to add or remove property-change subscriptions, then open the read-only /webhooks URL to verify. The user must be logged into their HubSpot account with access to the portal.",
+  "screen_tips": "In edit mode, click the Webhooks tab in the left sidebar, then Create subscription to open the right drawer. Object type and event type are dropdowns that often need a real mouse click on the option, not a script click; choose the object, choose Property changed, pick the property, then click Subscribe in the drawer. Subscribe only adds a draft row, so click Commit changes at the top right to save; the page then leaves edit mode, and the new row should appear on the read-only Webhooks page. Changes can take a few seconds or up to five minutes to take effect."
+ },
+ {
+  "key": "iherb",
+  "name": "iHerb",
+  "url_prefixes": [
+   "iherb.com/pr"
+  ],
+  "names": [
+   "iherb",
+   "i herb"
+  ],
+  "planner_tips": "Product pages use the form iherb.com/pr/<descriptive-slug>/<numeric-item-id>; the numeric ID identifies the exact item, so verify it and the selected package rather than substituting a similar name. Plain fetch often works, and labels need no login, but cart or account actions require signing in.",
+  "screen_tips": "The product heading is the selected product name, and the package or count selector sits near the buying panel. Supplement Facts may be already visible in a table or hidden behind a collapsed header; scroll to the header, click it, and confirm the table is visible before reading it. A 'Similar Recommendation' price belongs to another product, and subscription, one-time and promo prices appear together, so check the purchase type before reading a price."
+ },
+ {
+  "key": "imdb",
+  "name": "IMDb",
+  "url_prefixes": [
+   "imdb.com",
+   "imdb.com/chart",
+   "imdb.com/find",
+   "imdb.com/title"
+  ],
+  "names": [
+   "imdb",
+   "internet movie database",
+   "imdb.com"
+  ],
+  "planner_tips": "Open https://www.imdb.com/chart/top/ for the Top 250 ranked films and https://www.imdb.com/chart/moviemeter/ for the 100 trending titles. Search titles with https://www.imdb.com/find/?s=tt&q=KEYWORD (s=tt limits results to titles). Title pages live at https://www.imdb.com/title/tt{id}/ and the 'More Like This' recommendations there only appear after scrolling down. No login is needed for charts, search, or title pages.",
+  "screen_tips": "On chart and search pages each row is a list item with the rank prefixed to the title, such as '1. The Shawshank Redemption'. The 'More Like This' section sits far down a title page and loads only after scrolling, so scroll down and wait before looking for it. Vote counts appear abbreviated in parentheses, like (3.1M). Search results can mix people and companies unless the s=tt filter is in the URL."
+ },
+ {
+  "key": "itch-io",
+  "name": "itch.io",
+  "url_prefixes": [
+   "itch.io"
+  ],
+  "names": [
+   "itch.io",
+   "itch",
+   "itchio",
+   "itch io"
+  ],
+  "planner_tips": "Browse URLs open directly: itch.io/games/top-rated, /newest, /featured, /on-sale, /free, and tag listings at itch.io/games/tag-puzzle (use tag-<slug>). Pagination uses ?page=N. Search is at itch.io/search?q=platformer. Combined sort plus tag paths like /games/top-rated/tag-puzzle do not work, so open the tag page and sort from there. Owner dashboards and the API require a login or API key, while browsing and game pages are public.",
+  "screen_tips": "Game pages show a info table with status, platforms, genre, tags and links, and a price tag only for paid games. Search results beyond page 1 load through a load-more or scroll action rather than page links. Rating and download counts may be missing on tag listing cards, so open the game page to check ratings. Some titles start with an invisible zero-width space that can look like a blank character."
+ },
+ {
+  "key": "jetblue",
+  "name": "JetBlue",
+  "url_prefixes": [
+   "jetblue.com/booking"
+  ],
+  "names": [
+   "jetblue",
+   "jet blue",
+   "jetblue airways"
+  ],
+  "planner_tips": "Open flight search directly at https://www.jetblue.com/booking/flights with from, to (IATA codes), depart (YYYY-MM-DD), adults=1, children=0, infants=0, roundTripFaresFlag=false and usePoints=false query parameters instead of using the home page form. Guest checkout works without signing in, so no login is needed; cart is at https://www.jetblue.com/booking/cart and checkout at https://www.jetblue.com/booking/checkout. Stop before final payment submission unless the user explicitly authorizes that purchase.",
+  "screen_tips": "On search results, click a flight card to expand fares, then choose a Select button; a modal then offers Select Blue Basic or Select Blue, and Blue Basic goes straight to the cart. On traveler details, use Continue as guest, fill the form, and use the Title, Gender and date-of-birth dropdowns; the Year list is long, so scroll the target option into view before clicking. On Seats & Extras, Skip to Review & Pay skips seat selection, and card number and CVV are in separate cross-origin TokenEx iframes that often ignore typed input, so wait a few seconds after the page loads and verify the fields are filled before continuing."
+ },
+ {
+  "key": "job-boards",
+  "name": "Indeed, Glassdoor, Stepstone",
+  "url_prefixes": [
+   "indeed.com",
+   "glassdoor.com",
+   "stepstone.de"
+  ],
+  "names": [
+   "indeed",
+   "glassdoor",
+   "stepstone",
+   "job boards",
+   "indeed jobs",
+   "glassdoor jobs"
+  ],
+  "planner_tips": "Open job searches directly by URL instead of typing in the homepage search box: Indeed uses https://www.indeed.com/jobs?q=KEYWORD&l=LOCATION, with fromage=1, 3 or 7 for recent postings, jt=fulltime or jt=parttime for job type, and start=10 for the next page. Glassdoor uses https://www.glassdoor.com/Job/jobs.htm?sc.keyword=KEYWORD, with p=2 for the next page. Stepstone (Germany) uses https://www.stepstone.de/jobs/KEYWORD-WORDS-JOINED-BY-DASHES/in-CITY.html with /page-2.html for later pages. Public browsing needs no login for any of these, though Glassdoor may show a sign-in prompt after a few listings.",
+  "screen_tips": "Indeed and Glassdoor may show a cookie consent overlay on first load; close it with the Accept button before reading results. Glassdoor often shows a sign-in modal after a few scrolls, so read the visible listings first and close the modal with its X if it blocks the page. Indeed may show a CAPTCHA page that looks like a normal page with a puzzle or a continue button; if results look empty, check for that. Stepstone shows a fullscreen consent layer that must be accepted (look for Alle akzeptieren) before anything else is clickable."
+ },
+ {
+  "key": "letterboxd",
+  "name": "Letterboxd",
+  "url_prefixes": [
+   "letterboxd.com"
+  ],
+  "names": [
+   "letterboxd",
+   "letterboxd.com"
+  ],
+  "planner_tips": "Open film pages directly at letterboxd.com/film/{slug}/ using a lowercase title with hyphens for spaces, and append -{year} when the title is ambiguous (e.g. parasite-2019). Ratings histogram at letterboxd.com/film/{slug}/ratings/, reviews at /film/{slug}/reviews/, popular films at letterboxd.com/films/popular/, and user watched films at letterboxd.com/{username}/films/ are browser-only pages. Browsing pages and user sub-pages may require a login or fail for anonymous visitors, so check the page loads before relying on it. There is no public search URL, so construct the film slug from the title.",
+  "screen_tips": "Film pages show the title, year, director, rating and synopsis without login. Lists and filter pages load film posters that appear after the page renders, so wait a couple of seconds before reading them. Sub-pages like reviews and ratings can be blocked or show a login prompt for anonymous visitors. Login uses a form protected by Cloudflare Turnstile, which can need a manual check before submitting."
+ },
+ {
+  "key": "linkedin",
+  "name": "LinkedIn",
+  "url_prefixes": [
+   "linkedin.com/mynetwork/invitation-manager"
+  ],
+  "names": [
+   "linkedin",
+   "linked in"
+  ],
+  "planner_tips": "Open https://www.linkedin.com/mynetwork/invitation-manager/received/ for all pending invitations, or append PEOPLE_WITH_MUTUAL_CONNECTION or PEOPLE_WITH_MUTUAL_SCHOOL to the path to filter them. The page requires a logged-in LinkedIn account.",
+  "screen_tips": "Each invitation card has an Accept and an Ignore button; the filter chip at the top shows the remaining count in parentheses. Some cards labeled 'follows you and is inviting you to connect' have an Accept link that may not work, so use Ignore for those. After accepting a batch, reload the page because the next invitations do not load automatically. A 'Take care when connecting' dialog may appear; click 'Accept invite' to continue."
+ },
+ {
+  "key": "loom",
+  "name": "Loom",
+  "url_prefixes": [
+   "loom.com/looms/videos",
+   "loom.com/share"
+  ],
+  "names": [
+   "loom",
+   "loom.com",
+   "loom videos"
+  ],
+  "planner_tips": "Private workspace library folders are at loom.com/looms/videos/<slug>-<32-hex-id>; public folders at loom.com/share/folder/<id> are simpler. Individual recordings open at loom.com/share/<video-id>. A signed-in Loom session is required for private library folders and access-controlled recordings. Reuse an already-open tab showing the same recording rather than opening a new one.",
+  "screen_tips": "Library video cards are article elements whose visible title starts with an ARIA prefix; the list virtualizes, so scroll by bringing the last visible card into view rather than by setting scroll position. The Transcript panel shows timestamped cue text next to the player. Recordings can contain several video elements, including a short preview, so pick the one with the real duration and resolution before reading frames. Seeking the player is how you confirm a frame changed; the poster image can still show while the video is at another time."
+ },
+ {
+  "key": "lulu",
+  "name": "Lulu",
+  "url_prefixes": [
+   "help.lulu.com",
+   "developers.lulu.com"
+  ],
+  "names": [
+   "lulu",
+   "lulu print",
+   "lulu print api",
+   "lulu support"
+  ],
+  "planner_tips": "Lulu account currency is support-managed: the owner must contact support via https://help.lulu.com/en/support/tickets/new, choosing Lulu Print API, then Account and Updating Account Information, and get the owner's authorization first. Account settings and the storefront currency selector do not change billing currency. API key credentials live at https://developers.lulu.com/api-keys and require login.",
+  "screen_tips": "After the ticket form submits, look for a ticket number, acknowledgment email, or the ticket list before retrying, since a cleared form does not prove submission. The help site's suggested-answer panel may wrongly point to a settings-page change; trust the official article and the observed controls. Credential fields on the API keys page should not be copied into notes or screenshots."
+ },
+ {
+  "key": "ly-com",
+  "name": "Tongcheng (ly.com)",
+  "url_prefixes": [
+   "ly.com/hotel",
+   "passport.ly.com"
+  ],
+  "names": [
+   "tongcheng",
+   "同程旅行",
+   "tongcheng travel",
+   "ly.com",
+   "ly"
+  ],
+  "planner_tips": "Hotel search list opens at https://www.ly.com/hotel/hotellist?city=<cityId>&inDate=YYYY-MM-DD&outDate=YYYY-MM-DD, and a hotel detail page at https://www.ly.com/hotel/hoteldetail?hotelId=<hotelId>&inDate=YYYY-MM-DD&outDate=YYYY-MM-DD. Prices only appear after logging in at https://passport.ly.com/?pageurl=<encoded target URL>, and the login persists in the browser afterward. Shanghai's city id is 321, and mobile m.ly.com scenery paths return 404, so start from the desktop site.",
+  "screen_tips": "Before login, every price shows as the placeholder ￥？. After login, room cards on the hotel detail page show three prices in order: original, member price, and savings. The room list is the default tab, and you may need to scroll down or click the 房间 tab to reach it. On the hotel search page, the green 搜索 button is a plain div, so it has to be clicked directly on screen rather than through a button element. Results load slowly, so wait several seconds for the 正在搜寻更多住宿 loader to finish before reading cards."
+ },
+ {
+  "key": "macrotrends",
+  "name": "Macrotrends",
+  "url_prefixes": [
+   "macrotrends.net"
+  ],
+  "names": [
+   "macrotrends",
+   "macro trends",
+   "macrotrends.net"
+  ],
+  "planner_tips": "Stock price history, market cap, and fundamentals can be opened directly at macrotrends.net/stocks/charts/TICKER/company-name/ style pages, or via the stock price history page for the ticker. Economic indicator and index chart pages live at macrotrends.net/NNNN/slug URLs, and the slug is in the page URL. Most charts are public and need no login.",
+  "screen_tips": "Charts load in an embedded frame and the data tables sit below them. Use the ticker symbol to find a stock quickly, and the page title to confirm you are on the right chart. Some wrapper pages may show an access error, so reloading the page or opening it again usually works."
+ },
+ {
+  "key": "manus",
+  "name": "Manus",
+  "url_prefixes": [
+   "manus.im/app",
+   "manus.im/share"
+  ],
+  "names": [
+   "manus",
+   "manus ai",
+   "manus agent"
+  ],
+  "planner_tips": "Open https://manus.im/app to start a new task and https://manus.im/app/<taskId> to reopen a task by its id from the URL. Completed tasks can be shared at https://manus.im/share/<taskId>, which only works after the task has been shared. Manus requires a signed-in account; if the page redirects to a login or Google sign-in page, stop and ask the user to sign in.",
+  "screen_tips": "The prompt box at the bottom of /app is a rich text editor, so click into it and type; the send button is the black round arrow-up at its bottom-right, and Enter can sometimes open a slash menu instead of sending. A task is finished when the page shows a line reading exactly 'Task completed' with a green check. Sidebar tasks are plain text divs rather than links, and task titles are auto-shortened, so identify tasks by their URL id. Clicking Share opens a popover with a Copy link button, and clicking Share again closes it."
+ },
+ {
+  "key": "medium",
+  "name": "Medium",
+  "url_prefixes": [
+   "medium.com",
+   "towardsdatascience.com"
+  ],
+  "names": [
+   "medium",
+   "medium.com",
+   "medium blog"
+  ],
+  "planner_tips": "For a public article, open the article URL directly, such as https://medium.com/@user/slug-abc123, and the page shows the full body when the account is logged in. Publication pages are at https://medium.com/<publication-slug> and profiles at https://medium.com/@username. Medium search pages need a logged-in session and are not reachable without one. Member-only posts show a paywall unless the browser is signed in to an account with access.",
+  "screen_tips": "The article body sits inside the single article element; the clap, comment, listen and share row at the top is not body text. A paywall modal or a Sign in prompt means the article is locked for this account, so sign in or pick a different source. Text that appears short or cut off after the first paragraphs usually means the page has not finished loading, so wait a couple of seconds before reading."
+ },
+ {
+  "key": "mermaid",
+  "name": "Mermaid Live Editor",
+  "url_prefixes": [
+   "mermaid.live/edit"
+  ],
+  "names": [
+   "mermaid live",
+   "mermaid.live",
+   "mermaid editor",
+   "mermaid diagram",
+   "mermaid"
+  ],
+  "planner_tips": "Open the editor with the diagram code encoded in the URL hash as #pako:<data>, where data is zlib-compressed then URL-safe base64 of the editor state JSON, not a query parameter. Plain base64 of the code opens a blank editor. No login is needed.",
+  "screen_tips": "The diagram renders client-side after the page loads, so wait for a visible graph SVG and check that the editor text matches the submitted code. A blank editor with no graph means the encoding was wrong. Treat an error icon or error text in the graph area as a syntax failure."
+ },
+ {
+  "key": "metacritic",
+  "name": "Metacritic",
+  "url_prefixes": [
+   "metacritic.com"
+  ],
+  "names": [
+   "metacritic",
+   "metacritic.com",
+   "metascore"
+  ],
+  "planner_tips": "Title pages open directly at metacritic.com/game/{slug}/, /movie/{slug}/ or /tv/{slug}/, where slug is the title lowercased with spaces as hyphens and punctuation dropped (for example metacritic.com/game/the-last-of-us/). Score and review pages are reached from the title page, and no login is needed to read scores or reviews. Music pages are blocked to automated access, so do not plan on music pages loading.",
+  "screen_tips": "The Metascore is the large colored number on the title page, with the critic review count beside it, and the user score appears in a separate box next to it. If a title has fewer than four critic reviews, the Metascore shows as TBD instead of a number. Multi-platform games show one score by default, so use the platform selector on the page to see scores for other platforms. Search is in the top bar, and results list the media type so you can pick games, movies or TV shows."
+ },
+ {
+  "key": "microsoft-365",
+  "name": "Microsoft 365",
+  "url_prefixes": [
+   "admin.cloud.microsoft",
+   "security.microsoft.com/authentication"
+  ],
+  "names": [
+   "microsoft 365",
+   "office 365",
+   "m365",
+   "microsoft admin center",
+   "ms365"
+  ],
+  "planner_tips": "Open https://admin.cloud.microsoft/#/Domains to manage custom domains and https://admin.cloud.microsoft/#/users to edit user addresses, and sign in with an admin account first. For DKIM settings, open https://security.microsoft.com/authentication?viewid=DKIM.",
+  "screen_tips": "In the domain wizard, DNS record groups expand only through their small arrow buttons, not the heading text, so look for buttons labeled with 'records' or 'uitvouwen'. After clicking a wizard step, wait for the next heading or validation result before acting again, because transitions can finish after the page loads. In the user address dialog, changes are not saved until the final save succeeds, so reopen the user record afterward to confirm. If the domain is missing from the alias dropdown, reload the Users page.  ‑ Check the signed-in account name before any admin change, since a Chrome profile may sign into a different corporate tenant automatically."
+ },
+ {
+  "key": "musicbrainz",
+  "name": "MusicBrainz",
+  "url_prefixes": [
+   "musicbrainz.org",
+   "coverartarchive.org"
+  ],
+  "names": [
+   "musicbrainz",
+   "music brainz",
+   "musicbrainz encyclopedia"
+  ],
+  "planner_tips": "Search artists at musicbrainz.org/search?query=NAME&type=artist, and similar type= values for release, recording, release-group, label, or work. Entity pages are musicbrainz.org/artist/MBID (replace artist with release, recording, etc.). Reads need no login.",
+  "screen_tips": "Search results list entities with a score and disambiguation text under the name, so check that text to pick the right artist. Entity pages show tabs for releases, recordings, and tags, and the Cover Art Archive shows images on release pages. Search results can show the same title several times for different regional pressings, so compare date and country."
+ },
+ {
+  "key": "namecheap",
+  "name": "Namecheap",
+  "url_prefixes": [
+   "ap.www.namecheap.com/domains/domaincontrolpanel",
+   "namecheap.com"
+  ],
+  "names": [
+   "namecheap",
+   "name cheap"
+  ],
+  "planner_tips": "Open https://ap.www.namecheap.com/domains/domaincontrolpanel/<domain>/advancedns to reach a domain's Advanced DNS editor. Log in first, since the DNS pages require a Namecheap account session. Changing Mail Settings from Email Forwarding to Custom MX removes the forwarding SPF record, so plan to publish the chosen provider's SPF record separately. DNS changes can take time to appear publicly because negative answers may stay cached at some resolvers.",
+  "screen_tips": "In the Advanced DNS page, use the ADD NEW RECORD link in the Host Records or Custom MX section you need. Record types are picked from a dropdown list, so choose the matching option by its text and click it. Each new row has its own save control, and the row leaves edit mode once saved; wait for that before adding another row, and blur filled fields first. Custom MX has a separate SAVE ALL CHANGES button, and if the page still shows rows but saves fail, the session may have expired, so reload and check for a login prompt."
+ },
+ {
+  "key": "nasa",
+  "name": "NASA Open Data APIs",
+  "url_prefixes": [
+   "api.nasa.gov",
+   "epic.gsfc.nasa.gov",
+   "exoplanetarchive.ipac.caltech.edu"
+  ],
+  "names": [
+   "nasa",
+   "nasa api",
+   "nasa open data",
+   "apod",
+   "nasa astronomy picture of the day",
+   "epic earth images"
+  ],
+  "planner_tips": "These are JSON data APIs with no visual site to browse, so direct URL access is the main route; the guide says to avoid the browser entirely. Example: https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY returns today's Astronomy Picture of the Day, and adding date=YYYY-MM-DD selects a specific day. Example: https://epic.gsfc.nasa.gov/api/natural lists the latest Earth images from EPIC. A personal API key from https://api.nasa.gov/ is free and raises the DEMO_KEY rate limit of about 10 requests per hour.",
+  "screen_tips": "The guide's content is about JSON responses rather than page controls, so there is little to do on screen. If a page shows a rate-limit error, the DEMO_KEY hourly or daily quota is exhausted and access resumes after the reset window. EPIC and Exoplanet Archive pages have no key or rate limit."
+ },
+ {
+  "key": "news-aggregation",
+  "name": "News Aggregation (multi-source)",
+  "url_prefixes": [
+   "techcrunch.com",
+   "theverge.com",
+   "arstechnica.com",
+   "bbc.com",
+   "theguardian.com",
+   "wired.com",
+   "npr.org",
+   "news.ycombinator.com",
+   "reuters.com",
+   "cnn.com",
+   "nytimes.com"
+  ],
+  "names": [
+   "news aggregation",
+   "techcrunch",
+   "the verge",
+   "ars technica",
+   "bbc news",
+   "guardian",
+   "wired",
+   "npr",
+   "hacker news",
+   "reuters",
+   "cnn",
+   "nytimes",
+   "new york times"
+  ],
+  "planner_tips": "Open the front pages directly: https://techcrunch.com, https://www.bbc.com/news, https://www.theguardian.com/world, https://www.wired.com, https://news.ycombinator.com, https://www.nytimes.com; these pages load without a login. Reuters blocks direct page fetches, so open https://www.reuters.com in a browser and expect slow, JavaScript-heavy loading.",
+  "screen_tips": "BBC may show a cookie consent banner for EU visitors; accept it or dismiss it before reading headlines. On BBC, use the article headlines (not the site labels such as 'The BBC is in multiple languages'). On TechCrunch, headlines sit in h3 elements inside the page body, and the article layout changed, so older article-card layouts may not appear. On Reuters, scroll down and wait a few seconds for the page to finish loading before reading headlines."
+ },
+ {
+  "key": "nordic",
+  "name": "Nordic Naturals",
+  "url_prefixes": [
+   "nordic.com/products"
+  ],
+  "names": [
+   "nordic naturals",
+   "nordic"
+  ],
+  "planner_tips": "Product pages live at nordic.com/products/<slug>/, and a specific size or flavor may be selected with a ?variant=<id> query parameter, so keep that parameter when opening a product. Supplement facts are only shown in a drawer on the product page, so a search result snippet or product description is not enough to confirm ingredients for a specific variant.",
+  "screen_tips": "Click the visible Supplement Facts button on the product page to open a right-side drawer, and confirm the drawer titled Supplement Facts is open before reading. Read the full label in the drawer, including serving size, amounts, and other ingredients, since search snippets can omit it or mix up similarly named blends. Close the drawer with the close button labeled Close supplement facts sidebar at its top."
+ },
+ {
+  "key": "ods",
+  "name": "NIH Office of Dietary Supplements",
+  "url_prefixes": [
+   "ods.od.nih.gov/factsheets"
+  ],
+  "names": [
+   "nih ods",
+   "nih office of dietary supplements",
+   "ods fact sheet",
+   "dietary supplement fact sheets"
+  ],
+  "planner_tips": "Fact sheets open at ods.od.nih.gov/factsheets/<Nutrient>-HealthProfessional/ or ods.od.nih.gov/factsheets/<Nutrient>-Consumer/, choose the audience that matches the task. No login or form submission is needed for public fact sheets.",
+  "screen_tips": "Confirm the audience from the visible page title and read the article body and the Updated date near the top. Inline citations pop up as tooltips, so read the displayed prose rather than the hidden citation text. Section headings are the reliable way to find a topic on a page."
+ },
+ {
+  "key": "open-library",
+  "name": "Open Library",
+  "url_prefixes": [
+   "openlibrary.org"
+  ],
+  "names": [
+   "open library",
+   "openlibrary",
+   "internet archive book catalog"
+  ],
+  "planner_tips": "Open search results directly with https://openlibrary.org/search?q=QUERY, and use title= or author= parameters (e.g. https://openlibrary.org/search?title=dune&author=frank+herbert) for narrower matches. Work pages look like https://openlibrary.org/works/OL893415W and edition pages like https://openlibrary.org/books/OL7353617M; ISBN lookups can use https://openlibrary.org/isbn/ISBN. Browsing and reading require no login, but lists, ratings and reading logs need an Internet Archive account.",
+  "screen_tips": "The search page has filter facets on the left for language, format and availability, and sort options at the top. A work page lists editions below the description, and a Read or Borrow button appears when a digital copy exists. Clicking a book title opens its work page, and the edition list shows publisher and ISBN for each printing."
+ },
+ {
+  "key": "openalex",
+  "name": "OpenAlex",
+  "url_prefixes": [
+   "api.openalex.org",
+   "openalex.org"
+  ],
+  "names": [
+   "openalex",
+   "open alex"
+  ],
+  "planner_tips": "The site is a JSON API with no login and no browser UI needed for lookups; a person-like agent can open https://openalex.org and use its search box, or open https://openalex.org/works?search=transformer+attention to see work results directly. Entity pages follow the pattern https://openalex.org/W2626778328 (works), https://openalex.org/A5108093963 (authors), https://openalex.org/I63966007 (institutions), and https://openalex.org/S137773608 (sources). Filters can be passed as query parameters on the openalex.org list pages, for example https://openalex.org/works?filter=publication_year:2023 or https://openalex.org/works?sort=cited_by_count:desc. No account or sign-in is required.",
+  "screen_tips": "The site is a free public database that needs no login; search results and filters appear on the page after typing and pressing Enter. Result counts appear above the list, and clicking a title opens the work page with its DOI, authors, and open-access links. Entity IDs shown on pages are full openalex.org URLs, and the bare ID is the last part of the URL. The browser should be used for reading pages rather than scraping; the JSON API is intended for programmatic access and is not needed for normal browsing."
+ },
+ {
+  "key": "openstreetmap",
+  "name": "OpenStreetMap",
+  "url_prefixes": [
+   "openstreetmap.org",
+   "nominatim.openstreetmap.org",
+   "overpass-api.de",
+   "overpass.openstreetmap.fr"
+  ],
+  "names": [
+   "openstreetmap",
+   "osm",
+   "open street map",
+   "nominatim",
+   "overpass"
+  ],
+  "planner_tips": "This guide covers only HTTP APIs (Nominatim geocoding and Overpass queries), not the interactive map site, so a browser is not needed for the data itself. For a place search on the map UI, open https://www.openstreetmap.org/search?query=Eiffel+Tower and for a coordinate view use https://www.openstreetmap.org/#map=15/48.8584/2.2945. No login is required.",
+  "screen_tips": "On openstreetmap.org the search box is at the top left and results appear in a side panel. Clicking a result centers the map and updates the URL with the map coordinates and zoom. Action worked when the URL hash changes and the marker or highlighted feature appears on the map.'}  -- 2 to 1 error corrected below.json_placeholder_removed"
+ },
+ {
+  "key": "outlook",
+  "name": "Outlook",
+  "url_prefixes": [
+   "outlook.office.com/mail"
+  ],
+  "names": [
+   "outlook",
+   "outlook web",
+   "outlook mail",
+   "outlook.com",
+   "office 365 mail"
+  ],
+  "planner_tips": "Open https://outlook.office.com/mail/ to reach the inbox; the user must be logged in to a Microsoft account. Compose a message from there, and confirm the send by checking the Sent Items folder for the exact subject and recipient, since delivery to the recipient cannot be verified from the sender side.",
+  "screen_tips": "A first-use privacy dialog may appear over the inbox; dismiss its Continue button before opening compose. When typing a recipient address, select the suggestion shown below the field and confirm a recipient chip was created before moving to the Subject field, because the suggestion popup can cover it. Do not press Tab to leave a recipient field, since it can insert an invalid empty recipient; click the next field instead. A successful send closes the compose window and removes the draft."
+ },
+ {
+  "key": "package-registries",
+  "name": "npm and PyPI package registries",
+  "url_prefixes": [
+   "registry.npmjs.org",
+   "npmjs.com",
+   "pypi.org",
+   "pypistats.org"
+  ],
+  "names": [
+   "npm",
+   "npmjs",
+   "pypi",
+   "python package index",
+   "pypi.org",
+   "pypistats",
+   "npm registry"
+  ],
+  "planner_tips": "Open https://www.npmjs.com/package/NAME for a package's public page, or https://pypi.org/project/NAME/ for a Python package page. Package pages for npm and PyPI are public and need no login. Download counts for PyPI are shown on pypistats.org/packages/NAME, and npm search is at https://www.npmjs.com/search?q=TERM.",
+  "screen_tips": "On npm package pages, the README is in the main column and the install command and version are in the sidebar. On PyPI project pages, the project description is central and the release history is in the sidebar, with a link to Download files lower down. pypistats.org shows download totals as charts and tables on its package page.}"
+ },
+ {
+  "key": "partsouq",
+  "name": "PartSouq",
+  "url_prefixes": [
+   "partsouq.com"
+  ],
+  "names": [
+   "partsouq",
+   "part souq"
+  ],
+  "planner_tips": "To look up OEM parts by VIN, open https://partsouq.com/en/search/all?q=<17-char VIN>, which redirects to the manufacturer catalog for that exact vehicle. No login is needed for browsing. Dealer e-commerce sites and Toyota TIS usually lack the catalog or reject new VINs, so prefer PartSouq for this.",
+  "screen_tips": "On the vehicle page, use the 'Search in vehicle' box to search by part name or 5-digit Toyota base code, such as 44250. Results show full part numbers with quantity and production-date applicability; open the figure link to see the exploded diagram. Footnote callouts marked N01 mean the part is not sold individually. Check that the production-date window covers the target vehicle before treating a part as correct."
+ },
+ {
+  "key": "perplexity",
+  "name": "Perplexity Computer",
+  "url_prefixes": [
+   "perplexity.ai/computer"
+  ],
+  "names": [
+   "perplexity computer",
+   "perplexity ai computer",
+   "perplexity"
+  ],
+  "planner_tips": "Open https://www.perplexity.ai/computer/tasks for the task list, and https://www.perplexity.ai/computer/connectors or /computer/skills for connectors and custom skills. A task page is at https://www.perplexity.ai/computer/tasks/<slug>-<id>, and its public view is that URL with ?view=thread appended. Sign in first, since Computer is a paid feature that spends credits.",
+  "screen_tips": "Start a task by clicking the composer area (data-ask-input-container) and typing, then press Enter or the arrow send button; the URL changes to a task URL once submitted. Task rows on the list are clickable divs, not links, and the top bar has Usage, Todo and Share buttons, with Todo opening a plan panel showing check or pending icons. Share opens a popover with Private, Specific people and Anyone with the link options, and Copy Link copies the URL. An Insufficient credits banner with an Add credits button means the task is paused, not finished."
+ },
+ {
+  "key": "polymarket",
+  "name": "Polymarket",
+  "url_prefixes": [
+   "polymarket.com/event",
+   "polymarket.com/market"
+  ],
+  "names": [
+   "polymarket",
+   "polymarket.com",
+   "prediction market"
+  ],
+  "planner_tips": "Event pages open at polymarket.com/event/<slug>, where the slug is the stable identifier; a market page is polymarket.com/market/<slug>, but most markets are reached through events. Viewing markets and comments needs no login, but wallet-connect prompts can appear if a previous session linked a wallet, so use a clean browser profile.",
+  "screen_tips": "Each outcome row in a grouped event shows its label, a chance percentage, the Yes and No prices in cents, and volume; the first volume figure at the top is the event total, not an outcome. Price cents shown in the outcome rows are the visible values to read. Related-market cards in the sidebar show their own cents and percentages and are not part of the main event. Class names rotate and there are no data-testid attributes, so identify elements by visible text and position."
+ },
+ {
+  "key": "producthunt",
+  "name": "Product Hunt",
+  "url_prefixes": [
+   "producthunt.com"
+  ],
+  "names": [
+   "product hunt",
+   "producthunt",
+   "ph"
+  ],
+  "planner_tips": "Open daily launches directly at https://www.producthunt.com/leaderboard/daily/YYYY/M/D (month and day without zero padding, e.g. /2026/4/18), which lists all products for that day with vote counts. Weekly and monthly leaderboards live at /leaderboard/weekly/YYYY/WW and /leaderboard/monthly/YYYY/M. Topic pages are at /topics/<name> and search at /search?q=<terms>. No login is needed to view products. Product pages are at /products/<slug>, not /posts/.",
+  "screen_tips": "Use new_tab() to open producthunt.com URLs, since direct navigation sometimes fails; wait a few seconds for the page to finish rendering. Today's vote counts show as a dash for the first 4 hours of the day, so use yesterday's leaderboard for real counts. The homepage does not load more products on scroll, so use the leaderboard pages for full daily lists. On search results, the product entries are buttons rather than links, so clicking one is the way to open it."
+ },
+ {
+  "key": "pubmed",
+  "name": "PubMed",
+  "url_prefixes": [
+   "pubmed.ncbi.nlm.nih.gov"
+  ],
+  "names": [
+   "pubmed",
+   "pub med",
+   "ncbi pubmed",
+   "medline",
+   "pubmed ncbi"
+  ],
+  "planner_tips": "Search directly at https://pubmed.ncbi.nlm.nih.gov/?term=QUERY, using + or %20 for spaces; field tags like [Author], [Title], [MeSH Terms] work inside the term. Add filters as query parameters, for example &filter=years.2020-2024 for a year range, &sort=date for newest first, or &filter=pubt.systematicreview for review types. Individual articles open at https://pubmed.ncbi.nlm.nih.gov/PMID/. No login is needed to search or read abstracts; a free NCBI account is only needed for saved searches and collections.",
+  "screen_tips": "The search box is at the top of the results page and the sort control and filter sidebar sit above and beside the result list. Filters apply immediately when clicked, so check that the result count changes. Full text links appear on article pages as Free PMC article or publisher links in the right column, and the DOI is listed in the citation details. Titles and PMIDs are shown on each result card, and the abstract appears below the title on article pages."
+ },
+ {
+  "key": "qbo",
+  "name": "QuickBooks Online",
+  "url_prefixes": [
+   "qbo.intuit.com/app/customreports",
+   "qbo.intuit.com/app/report"
+  ],
+  "names": [
+   "quickbooks online",
+   "quickbooks",
+   "qbo",
+   "intuit quickbooks"
+  ],
+  "planner_tips": "Open https://qbo.intuit.com/app/customreports to list saved custom reports, then open a saved report at /app/report/builder?rptId=sbg:<uuid>&type=user. Requires a logged-in QuickBooks Online session in the browser. Date fields follow the account locale (one tested locale used dd.mm.yyyy), so set dates in that format.",
+  "screen_tips": "Set the date inputs, then click the report toolbar refresh button and wait for the text '<report name> report is ready'. Toolbar button positions shift when report width changes, so locate Export from the current screenshot. The Compact dropdown offers Compact View, Normal View, Expand All and Collapse All; Export to PDF under the Export menu opens an in-page PDF viewer modal, and its Save as PDF button opens a native OS save sheet that may be hard to operate."
+ },
+ {
+  "key": "quora",
+  "name": "Quora",
+  "url_prefixes": [
+   "quora.com"
+  ],
+  "names": [
+   "quora"
+  ],
+  "planner_tips": "Question, answer, topic and profile pages (quora.com/{Question-slug}, quora.com/topic/{slug}, quora.com/profile/{username}) render their main content without login, so open them directly. Keyword search at quora.com/search?q=... does not show results without a browser session, so search from the site's search box instead. Posting, upvoting, and following require a logged-in account.",
+  "screen_tips": "Quora shows only the top few answers on a question page; scroll down and use the page's expand or more-answers controls to load the rest. Sign-in prompts may appear as overlays that hide content and need dismissing. The Follow and Upvote buttons change label or color once clicked, which confirms the action took effect."
+ },
+ {
+  "key": "rawg",
+  "name": "RAWG",
+  "url_prefixes": [
+   "rawg.io"
+  ],
+  "names": [
+   "rawg",
+   "rawg.io",
+   "rawg video game database",
+   "rawg game database"
+  ],
+  "planner_tips": "Open individual game pages directly at rawg.io/games/{slug}, for example rawg.io/games/the-witcher-3-wild-hunt, since search and filter parameters on rawg.io/games do not change the listed results. Game pages show ratings, Metacritic score, release date, platforms, genres, developers and publishers without needing a login. Browsing and reading require no account; a free signup is only needed for the separate API, which is not useful for a screen-based agent.",
+  "screen_tips": "Search for a game with the site search box at the top of the page, then open the result that matches the expected release year. Game detail pages list the community rating and Metacritic score near the top, and the description, developers and publishers further down. Listing-page filters such as ordering and genre are applied in the page after it loads, so check the visible result list rather than assuming the URL changed it. If a game was renamed, the page may redirect to a different slug, so confirm the title shown on screen."
+ },
+ {
+  "key": "reddit",
+  "name": "Reddit",
+  "url_prefixes": [
+   "reddit.com",
+   "old.reddit.com"
+  ],
+  "names": [
+   "reddit"
+  ],
+  "planner_tips": "Open full post pages directly at reddit.com/r/<sub>/comments/<id>/<slug>/, and share short links (reddit.com/r/<sub>/s/<hash>) redirect to the canonical post URL after loading. Private subreddits, NSFW posts and quarantined subs need the user to be logged in with an account that has opted into NSFW content. Old Reddit at old.reddit.com/r/<sub>/comments/<id>/ is a simpler layout and honors the same login session.",
+  "screen_tips": "Post title and body appear at the top of the post page, and top-level comments follow below; scroll down twice to load more comments in long threads. Vote scores are abbreviated on screen (like 1.2k), so read the exact number from the post if precision matters. If an age gate or login wall appears, it blocks the content until the user logs in or enables NSFW in account settings.}"
+ },
+ {
+  "key": "rest-countries",
+  "name": "REST Countries",
+  "url_prefixes": [
+   "restcountries.com"
+  ],
+  "names": [
+   "rest countries",
+   "restcountries",
+   "countries api"
+  ],
+  "planner_tips": "This site is a JSON API with no human-facing pages to browse, so there is nothing useful to open or click through in a browser. No login or API key is needed.",
+  "screen_tips": "The base site is a raw JSON API, not a visual website, so a person-like agent has little to do on screen. If a page shows JSON, read the fields such as name.common, cca2, capital, and population directly from the text."
+ },
+ {
+  "key": "sec-edgar",
+  "name": "SEC EDGAR",
+  "url_prefixes": [
+   "sec.gov",
+   "sec.gov/edgar",
+   "efts.sec.gov/latest/search-index"
+  ],
+  "names": [
+   "sec edgar",
+   "edgar",
+   "sec",
+   "sec filings",
+   "securities and exchange commission"
+  ],
+  "planner_tips": "EDGAR full-text search is at https://efts.sec.gov/LATEST/search-index?q=%22phrase%22&forms=10-K, and company filing lists are reached through the company search at https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=NAME&type=10-K. Public company pages need no login, and filings can be opened directly from the Archives paths under https://www.sec.gov/Archives/edgar/data/. Ticker lookup is easiest by searching the company name on sec.gov.",
+  "screen_tips": "The site search box is at the top of sec.gov and the EDGAR company search form is on the browse-edgar page, where filing types can be picked from a dropdown. Filing rows show form type, filing date, and a Documents link that opens the main document. Search results list company names with CIKs, and clicking a name opens the company's filings table."
+ },
+ {
+  "key": "shopify-admin",
+  "name": "Shopify Admin",
+  "url_prefixes": [
+   "admin.shopify.com",
+   "admin.shopify.com/store"
+  ],
+  "names": [
+   "shopify",
+   "shopify admin",
+   "shopify store admin",
+   "shopify knowledge base",
+   "shopify forms"
+  ],
+  "planner_tips": "Shopify admin pages live under admin.shopify.com/store/<store-handle>/..., and you must be logged in to that store in the browser beforehand; if redirected to accounts.shopify.com, stop and ask the human to log in. Embedded apps such as the Knowledge Base app (admin.shopify.com/store/<store>/apps/shopify-knowledge-base/app) and Forms (admin.shopify.com/store/<store>/apps/shopify-forms, forms at /apps/shopify-forms/forms/<id>) open directly by URL, and their content sits inside an iframe. Open the app's own URL rather than navigating through the sidebar when possible.",
+  "screen_tips": "Most app content is inside an iframe, so top-level page controls like the sidebar and search are not the app's buttons. In Forms, selecting a discount on the Success section overwrites the teaser title, form title, success title and success content with generic customer-facing text, so re-check those four fields before saving. Rich-text Content fields in Forms only accept edits by real triple-click and keystrokes; editing them with script leaves the character counter wrong and blocks saving. A Save button that stays disabled after text entry means the input did not register as typed text, so retype it."
+ },
+ {
+  "key": "slack",
+  "name": "Slack",
+  "url_prefixes": [
+   "slack.com",
+   "files.slack.com"
+  ],
+  "names": [
+   "slack",
+   "slack workspace"
+  ],
+  "planner_tips": "Slack file permalinks look like https://<workspace>.slack.com/files/<USERID>/<FILEID>/<name>; open them in a tab where the user is already signed in to that workspace. Changing only the filename part of a permalink returns the same file, so identify files by their file ID. Viewing a Slack workspace requires the user to be signed in to that workspace.",
+  "screen_tips": "The permalink page may sit on 'Redirecting…' indefinitely while it tries to open the desktop app; do not wait for it and use the web view or the file's download option instead. Files open in a viewer overlay where a download button is usually in the top-right toolbar. Confirm a download worked by checking that the file appears in the browser's downloads list or that the viewer shows the file name."
+ },
+ {
+  "key": "smartlead",
+  "name": "Smartlead",
+  "url_prefixes": [
+   "app.smartlead.ai"
+  ],
+  "names": [
+   "smartlead",
+   "smart lead",
+   "smartlead ai"
+  ],
+  "planner_tips": "Open https://app.smartlead.ai/app/email-accounts to see sender accounts, and use /app/email-account/<id>/warmup to go straight to a mailbox's warmup tab (other tabs: overview, general, management, campaigns). Adding a mailbox needs a Smartlead login, and new accounts also need a verification email link to be opened in the same browser; Outlook connection additionally needs a Microsoft login for that mailbox.",
+  "screen_tips": "Use Connect Mailbox, then choose Outlook by its visible provider text, since plain buttons may not be the clickable target. Warmup switches report state via aria-checked, and the random daily range is a slider whose aria-valuenow reads minimum|maximum; changing the total daily limit can reset both range ends, so set the range after editing the total. Confirm a connection by Smartlead's success message and the sender row, not just Microsoft consent, and reopen the account to verify warmup settings saved. In checkout, the card field is inside an iframe and a floating assistant box may cover payment fields; scroll the modal or dismiss it."
+ },
+ {
+  "key": "soundcloud",
+  "name": "SoundCloud",
+  "url_prefixes": [
+   "soundcloud.com"
+  ],
+  "names": [
+   "soundcloud",
+   "sound cloud"
+  ],
+  "planner_tips": "Open track, playlist and profile pages directly by their permalink, such as soundcloud.com/{user}/{track-slug}, soundcloud.com/{user}/sets/{playlist-slug}, or soundcloud.com/{user}. Search results can be reached at soundcloud.com/search?q={terms} with the query URL-encoded. Public tracks, playlists and profiles need no login, but streaming audio and timed comments require signing in.",
+  "screen_tips": "The track player sits at the bottom of the page with play/pause and a waveform you can click to seek. Search results can be filtered by tabs such as Tracks, People and Playlists near the top of the results. Some controls, like playing full audio, may prompt a sign-in dialog that needs dismissing before continuing. A track's play count and like count appear beneath its title on its page."
+ },
+ {
+  "key": "spotify",
+  "name": "Spotify",
+  "url_prefixes": [
+   "open.spotify.com"
+  ],
+  "names": [
+   "spotify",
+   "spotify web player"
+  ],
+  "planner_tips": "Track, album, artist and playlist pages open directly at open.spotify.com/track/{id}, /album/{id}, /artist/{id} and /playlist/{id}, and search is at open.spotify.com/search?q=... with the query typed into the URL. Public catalog pages need no login, but library, listening history, playlist creation and lyrics require signing in to a Spotify account. Podcast episode pages may not show the full content without login.",
+  "screen_tips": "The search box is at the top of the page, and typing a query there shows results in a dropdown or on the search results page. Play buttons are large green circles, and the track list on album and playlist pages shows a play icon on hover. Playback controls sit in the bottom bar, and a track starts playing only after its play button is clicked and the bottom bar changes to show the title."
+ },
+ {
+  "key": "stackoverflow",
+  "name": "Stack Overflow",
+  "url_prefixes": [
+   "stackoverflow.com"
+  ],
+  "names": [
+   "stack overflow",
+   "stackoverflow",
+   "so"
+  ],
+  "planner_tips": "Open question pages directly at stackoverflow.com/questions/{id}/{slug} and search at stackoverflow.com/search?q={keywords} or add tag:python inside q for tag filtering. Tag pages are at stackoverflow.com/questions/tagged/{tag}, with sort via ?tab=votes or ?tab=newest. Reading questions and answers needs no login; posting, voting, and saving require signing in.",
+  "screen_tips": "Sorting tabs (Newest, Active, Votes) sit above the question list, and the accepted answer shows a green check mark. Question and answer vote arrows are on the left side of each post. Search results can be narrowed by the filter menu on the results page. Voting or answering while logged out opens a login dialog, so check for that before retrying the action."
+ },
+ {
+  "key": "steam",
+  "name": "Steam",
+  "url_prefixes": [
+   "store.steampowered.com"
+  ],
+  "names": [
+   "steam",
+   "steam store",
+   "steam games",
+   "steampowered"
+  ],
+  "planner_tips": "Open store.steampowered.com/app/{appid}/ for a game's store page, and store.steampowered.com/search/?term=QUERY to search by title. Mature games show an age check at store.steampowered.com/agecheck/app/{appid}/ that must be confirmed with a birth date before the store page loads. Prices shown depend on the country setting, which can be changed with the region selector at the bottom of the page. Buying or wishlisting requires a Steam login.",
+  "screen_tips": "The store page shows price, discount percent and reviews near the top, with the Add to Cart and Add to Wishlist buttons on the right side. Discounted prices show the original price struck through beside the current price. The age check is a form with day, month and year dropdowns and a View Page button; choose a birth year well before the game's rating age. Success shows as a cart count in the header or a checkout page, not a popup."
+ },
+ {
+  "key": "stripe",
+  "name": "Stripe",
+  "url_prefixes": [
+   "dashboard.stripe.com"
+  ],
+  "names": [
+   "stripe",
+   "stripe dashboard"
+  ],
+  "planner_tips": "Open https://dashboard.stripe.com/test/apikeys for the current account's Test mode API keys, and https://dashboard.stripe.com/test/settings/account for account settings. Account-specific links use the form dashboard.stripe.com/{account_id}/test/... and a sandbox created during onboarding has its own account ID, so confirm which account is intended before creating products, prices, or webhooks. Logging in to the Stripe dashboard is required.",
+  "screen_tips": "The account switcher is where to check which account is active, and the account ID is shown in account settings. The onboarding Business name field only changes the display name shown in the switcher, so use Settings then Business then Account details to change it, and only when the user asks. Do not assume the onboarding sandbox is the main account's Test mode; compare the account ID on the account settings page with the one you expect."
+ },
+ {
+  "key": "substack",
+  "name": "Substack",
+  "url_prefixes": [
+   "substack.com",
+   "simonwillison.substack.com"
+  ],
+  "names": [
+   "substack",
+   "substack newsletter",
+   "substack publication"
+  ],
+  "planner_tips": "Each Substack publication lives at its own subdomain (name.substack.com) or custom domain, and post pages are at /p/{slug} under that host. Full post pages can be opened by URL directly, and cross-publication search at substack.com/search is not reliable without a login. Paywalled posts require a logged-in subscriber to read the full text, and free posts need no login.",
+  "screen_tips": "Post list pages show titles with a lock or Subscribe prompt on paid posts, and the full body appears only for free posts or logged-in subscribers. Comments are in a section below the post and may need scrolling or a Load more click. A subscribe or sign-in modal can appear over the page and must be dismissed with its close button before reading.}"
+ },
+ {
+  "key": "supabase",
+  "name": "Supabase",
+  "url_prefixes": [
+   "supabase.com/dashboard"
+  ],
+  "names": [
+   "supabase",
+   "supabase dashboard",
+   "supabase sql editor"
+  ],
+  "planner_tips": "Open the project home at supabase.com/dashboard/project/{project_ref} after confirming the project name and branch, or the organization page at supabase.com/dashboard/org/{organization_id}. Use the SQL Editor link in the navigation to reach the query editor. Signed-in access is required, and an older tab showing the sign-in page does not mean login failed.",
+  "screen_tips": "In the SQL editor, the Editor content box only holds text near the cursor, so to replace a query click into the editor, press Select All, press Backspace, then paste the new SQL and read the rendered code before clicking Run. Check the Results panel after Run; DDL shows Success with no rows returned, and results may be cut off at about 100 rows with a visible error if a limit is hit. Use the SQL Editor navigation link rather than the similarly named top-bar button when the choice is ambiguous.Avoid editing the page's internal state; rely on visible text and results to confirm actions."
+ },
+ {
+  "key": "tasksquad-ai",
+  "name": "TaskSquad",
+  "url_prefixes": [
+   "tasksquad.ai"
+  ],
+  "names": [
+   "tasksquad",
+   "task squad",
+   "tsq"
+  ],
+  "planner_tips": "Sign-in is SSO only (Google or GitHub), so the user must complete login in the OAuth popup before any dashboard page loads. Open https://tasksquad.ai/dashboard for the task inbox and https://tasksquad.ai/dashboard/agents for the agents list. Individual task threads are at https://tasksquad.ai/dashboard/<taskId>. Only owners and maintainers can create or delete agents or generate tokens; members can only view them.",
+  "screen_tips": "Use the Status and Origin dropdowns above the inbox list to filter tasks, and the RefreshCw icon next to the Inbox heading to reload. To create a task, click New message, pick an agent from the Select agent dropdown, type a subject, then click Send. Agent tokens are shown only once after creation, so copy them immediately. Inbox status badges such as pending, running, and waiting_input show task progress, and a reply box appears at the bottom of a thread only when the task is waiting_input."
+ },
+ {
+  "key": "thetechgeeks",
+  "name": "The Tech Geeks",
+  "url_prefixes": [
+   "thetechgeeks.com"
+  ],
+  "names": [
+   "the tech geeks",
+   "tech geeks",
+   "thetechgeeks"
+  ],
+  "planner_tips": "Product pages live at thetechgeeks.com/products/<slug>, but slugs are long marketing titles, so find a product by searching thetechgeeks.com/search?q=<SKU> and opening the first product link. Prices are shown in AUD including GST, and no login is needed to view them.",
+  "screen_tips": "Stock is unreliable on the page: many items show as available in the listing while sold out pages still display stale or inflated prices, so treat a price as unverified if the page says Sold out, which may appear near the product title or as a sold-out price label. Only trust prices on in-stock products, and cross-check a suspicious price against another AU vendor or the Ubiquiti store."
+ },
+ {
+  "key": "thorne",
+  "name": "Thorne",
+  "url_prefixes": [
+   "thorne.com/products/dp"
+  ],
+  "names": [
+   "thorne",
+   "thorne research",
+   "thorne supplements"
+  ],
+  "planner_tips": "Product pages follow the pattern thorne.com/products/dp/<slug>, so open the exact product slug directly rather than searching. A fetch-only view may show only a generic shell, so plan to confirm the product heading and SKU on the rendered page.",
+  "screen_tips": "Find the ingredient section through the Ingredients Information navigation button, and use the Show More button to expand the ingredient table, then confirm aria-expanded and the visible table before reading. Serving size and servings per container sit above the table, and warnings are in a separate section. A product may show a To be discontinued notice beside disabled Out of Stock - Pre-Order buttons; treat that as a future notice and an unavailable control, not confirmed discontinuation, and do not click checkout or preorder to check availability."
+ },
+ {
+  "key": "tiktok",
+  "name": "TikTok Studio",
+  "url_prefixes": [
+   "tiktok.com/tiktokstudio/upload"
+  ],
+  "names": [
+   "tiktok",
+   "tiktok studio",
+   "tik tok",
+   "tiktok upload"
+  ],
+  "planner_tips": "Open https://www.tiktok.com/tiktokstudio/upload?from=upload&lang=en directly, always keeping the lang=en parameter. You must be logged into TikTok in the browser profile beforehand, and the video file must be on local disk (mp4, under 50MB). After submitting a scheduled post, the page should land on tiktokstudio/content.",
+  "screen_tips": "If a banner says a video you were editing wasn't saved, click its Discard button near the top, then confirm with the red Discard button in the modal that follows; repeat for stacked drafts. The caption box is pre-filled with the filename, so clear it (click in it, press End, then Backspace many times) before typing, and press Escape to dismiss hashtag suggestions. Choose Schedule before the submit button reads Schedule instead of Post, and expand 'Show more' only after setting the time because it pushes the time picker out of view. The time picker is a scroll-wheel list where mouse-wheel steps change the value, and clicking its items may need a real mouse click rather than a script click; confirm success by the URL changing to the content page."
+ },
+ {
+  "key": "tradingview",
+  "name": "TradingView",
+  "url_prefixes": [
+   "tradingview.com",
+   "tradingview.com/symbols",
+   "tradingview.com/chart",
+   "tradingview.com/ideas"
+  ],
+  "names": [
+   "tradingview",
+   "trading view",
+   "tv"
+  ],
+  "planner_tips": "Symbol pages open directly at www.tradingview.com/symbols/NASDAQ-AAPL/ using EXCHANGE-TICKER with a hyphen, and charts open at www.tradingview.com/chart/?symbol=NASDAQ:AAPL with a colon. Trading ideas for a symbol are at www.tradingview.com/symbols/NASDAQ-AAPL/ideas/. Charts, watchlists, portfolio and paper trading need a logged-in account; the public screener and symbol pages do not.",
+  "screen_tips": "Pages are React apps that load data after the first render, so wait a few seconds before reading prices or charts. Chart screenshots may appear blank until the chart finishes drawing. Watchlist and portfolio features prompt for sign-in when used logged out."
+ },
+ {
+  "key": "trello",
+  "name": "Trello",
+  "url_prefixes": [
+   "trello.com"
+  ],
+  "names": [
+   "trello",
+   "trello board",
+   "trello boards"
+  ],
+  "planner_tips": "Open https://trello.com/ while signed in and it redirects to https://trello.com/u/<username>/boards, the boards dashboard; do not use trello.com/boards, which errors for signed-in users. Boards open at https://trello.com/b/<boardId>/<slug>, and the slug is cosmetic so the 8-character boardId is what matters. Cards open at https://trello.com/c/<cardId>/<n>-<slug>. The site expects a signed-in session; if logged out, the marketing home page appears instead and a login is needed.",
+  "screen_tips": "Board lists are side-by-side columns that scroll horizontally, and cards stack vertically inside each list. Lists and cards can take a second or two to fill in after the page looks loaded, so wait until cards appear before reading the board. The dashboard lists each board in both recent and starred sections, so pick one entry per board. Sidebar headings such as plan names are not list names; read list titles from the column headers only."
+ },
+ {
+  "key": "trustpilot",
+  "name": "Trustpilot",
+  "url_prefixes": [
+   "trustpilot.com/review"
+  ],
+  "names": [
+   "trustpilot",
+   "trust pilot"
+  ],
+  "planner_tips": "Open company reviews directly at https://www.trustpilot.com/review/{domain}, for example trustpilot.com/review/amazon.com. Add filters as query parameters: stars=1 to 5 for one star rating, languages=en (default) or languages=all for every language, and verified=true for only invitation-verified reviews. Reviews are paginated with page=N, but only pages 1 to 10 (about 200 reviews) show content. No login is needed to read reviews.",
+  "screen_tips": "The company's trust score and review count appear at the top of the company page. Star and language filters are in the sidebar, and the verified filter often leaves only a handful of reviews for large companies. Sorting by recency, highest or lowest rated works in the browser, so use the sort control rather than a URL parameter. Past page 10 the review list comes back empty, so stop paging there.}"
+ },
+ {
+  "key": "vercel",
+  "name": "Vercel",
+  "url_prefixes": [
+   "vercel.com"
+  ],
+  "names": [
+   "vercel"
+  ],
+  "planner_tips": "Open https://vercel.com/<team> for the team overview and https://vercel.com/<team>/<project> for a project; the Production Deployment card on the overview shows the live commit and domain, and the project's Analytics and Observability > Edge Requests pages hold traffic data. Use an existing tab in the intended logged-in Chrome profile and verify the visible account name before reading data, since a 404 on a team route can mean the wrong account. Deployment logs are at /<team>/<project>/<deployment-id-without-dpl_-prefix>/logs for runtime requests, and build logs appear in the deployment's Build Logs section. The /dashboard URL redirects to /<team>.",
+  "screen_tips": "Do not open fix or remediation workflows from an Action Required banner; just read the warning and its link. Do not click Redeploy, Update or Rotate without user authorization. Analytics shows an Enable button and Demo Data label when visitor analytics is off, so the chart is sample data then. Edge Requests may appear both as a sidebar link and a card link, and client-side navigation can briefly show the previous page, so check the URL and page heading after clicking; the Build Logs list only renders visible rows, so scroll it to see all lines."
+ },
+ {
+  "key": "walmart",
+  "name": "Walmart",
+  "url_prefixes": [
+   "walmart.com"
+  ],
+  "names": [
+   "walmart",
+   "wal-mart",
+   "walmart.com"
+  ],
+  "planner_tips": "Open search results directly at https://www.walmart.com/search?q=KEYWORDS, adding &sort=price_low, &sort=best_seller or &sort=customer_rating to reorder, and &min_price=N&max_price=N to filter by price; add &page=N for later pages. Category browsing uses /browse/ paths, and product pages are https://www.walmart.com/ip/ANYSLUG/ITEMID. Browsing and searching do not require a login, but cart and checkout do.",
+  "screen_tips": "Search results mix sponsored items with organic ones, so check for a Sponsored label when choosing a product. Sort and filter controls sit above the product grid, and pagination is at the bottom of the page. Prices, ratings and stock status appear on each product card and on the product page. If a Robot or human challenge page appears, the site is blocking automated access and the task may need a different approach."
+ },
+ {
+  "key": "wayback-machine",
+  "name": "Wayback Machine",
+  "url_prefixes": [
+   "web.archive.org"
+  ],
+  "names": [
+   "wayback machine",
+   "wayback",
+   "internet archive",
+   "archive.org",
+   "web archive"
+  ],
+  "planner_tips": "To see archived copies of a page, open https://web.archive.org/web/*/example.com (replace the URL) to get a calendar of captures, or open https://web.archive.org/web/{YYYYMMDDHHMMSS}/{url} for a specific date. No login is needed. Captures can be filtered by date using the calendar view rather than programmatic queries.",
+  "screen_tips": "The archived page shows a Wayback toolbar at the top with a date selector and calendar; click a highlighted date in the calendar to jump to that capture. Pages may load slowly, so wait for the content to render before reading it. Some dates show no capture, so pick a dated bar in the calendar instead.  If a snapshot looks wrong, check the timestamp shown in the toolbar to confirm which capture you are viewing."
+ },
+ {
+  "key": "weather",
+  "name": "Weather APIs",
+  "url_prefixes": [
+   "wttr.in",
+   "open-meteo.com",
+   "weather.gov"
+  ],
+  "names": [
+   "weather",
+   "wttr.in",
+   "open-meteo",
+   "weather.gov",
+   "nws",
+   "national weather service"
+  ],
+  "planner_tips": "This guide covers weather data APIs rather than interactive sites, so there are no pages to browse. Open wttr.in/CityName?format=j1 for a quick current conditions and 3-day forecast in one page. Open-Meteo offers longer forecasts up to 16 days and needs no login. weather.gov forecasts are US-only and need a city's coordinates first. No login is required for any of these services.",
+  "screen_tips": "The guide is written for scripts and does not describe any on-screen controls. A person-like agent should not use a browser for these APIs because they return raw JSON or text. If a page appears as HTML or ASCII art instead of data, the wrong format parameter was used. weather.gov may reject requests without a descriptive user agent."
+ },
+ {
+  "key": "wehotel",
+  "name": "Jinjiang WeHotel",
+  "url_prefixes": [
+   "bestwehotel.com"
+  ],
+  "names": [
+   "wehotel",
+   "jinjiang wehotel",
+   "jin jiang hotels",
+   "锦江酒店",
+   "锦江WeHotel",
+   "bestwehotel"
+  ],
+  "planner_tips": "Open https://www.bestwehotel.com/HotelSearch/?checkinDate=YYYY-MM-DD&checkoutDate=YYYY-MM-DD&cityCode=AR04567&cityName=%E4%B8%8A%E6%B5%B7&queryWords=&extend=1,2,0,0,0,0 for Shanghai results, using lowercase checkinDate and checkoutDate. Hotel detail pages use https://www.bestwehotel.com/HotelDetail/?hotelId=JJ1888&checkInDate=YYYY-MM-DD&checkOutDate=YYYY-MM-DD with capitalized parameter names, and a wrong capitalization silently shows default dates. Browsing list and detail pages works without logging in.",
+  "screen_tips": "The search button on the homepage is a div with the text 搜索, and clicking it loads results after a few seconds. Each hotel card has a 查看详情 link that opens the detail page, where the room table lists room type, breakfast, cancellation policy, and price with a 立即预订 button. Homepage dates shift daily, so set the check-in and check-out dates explicitly before searching. The text 价格区间 near the filters is a UI label, not a price."
+ },
+ {
+  "key": "wellfound",
+  "name": "Wellfound",
+  "url_prefixes": [
+   "wellfound.com"
+  ],
+  "names": [
+   "wellfound",
+   "angellist",
+   "angel list",
+   "wellfound jobs"
+  ],
+  "planner_tips": "Open company profiles directly at wellfound.com/company/{slug} and job boards at wellfound.com/jobs; company job lists are at wellfound.com/company/{slug}/jobs. Filtering by role or location through URL query parameters does not work reliably, so load /jobs and use the on-page filter dropdowns instead. Company overview pages are viewable without logging in, but individual job details and user profiles show a sign-in modal and need an account.",
+  "screen_tips": "Wait several seconds after the page loads, since a bot-check overlay may still be resolving. If the title says Just a moment or the page is blank, wait longer before acting. Company names appear in the main heading and the description sits below it. A sign-in modal can appear over job details; close it with its close button or the Escape key to continue browsing."
+ },
+ {
+  "key": "weread",
+  "name": "WeRead",
+  "url_prefixes": [
+   "weread.qq.com"
+  ],
+  "names": [
+   "weread",
+   "we read",
+   "微信读书",
+   "wechat reading"
+  ],
+  "planner_tips": "Open https://weread.qq.com/web/category/newbook for the New Book ranking, https://weread.qq.com/web/category/rising or https://weread.qq.com/web/category/hot_search for other rankings, and https://weread.qq.com/web/bookDetail/{BOOK_ID} for a book's detail page. Reader pages use https://weread.qq.com/web/reader/{BOOK_ID}k{CHAPTER_HASH} and open directly at that chapter. Reading features require logging in with WeChat by scanning a QR code on the home page https://weread.qq.com/, and the login then persists in the browser.",
+  "screen_tips": "Login is a QR code shown on the home page that must be scanned with the WeChat mobile app; the page redirects to home when the scan succeeds. In the reader, the Chinese button labeled 下一章 (next chapter) sits at the bottom of the page and must be scrolled into view before clicking. When a book ends, a 全书完 or 已读完 notice appears with a 标记读完 or 标记已读 button to mark it finished. Scrolling down about 100px at a time with a pause of several seconds reads the text steadily."
+ },
+ {
+  "key": "world-bank",
+  "name": "World Bank Open Data",
+  "url_prefixes": [
+   "data.worldbank.org",
+   "api.worldbank.org/v2"
+  ],
+  "names": [
+   "world bank",
+   "world bank open data",
+   "worldbank",
+   "world bank data"
+  ],
+  "planner_tips": "The site is a public REST API with no login needed; the human-facing data portal is at data.worldbank.org, and indicator pages there can be opened by ID. Country pages use ISO2 codes, such as data.worldbank.org/country/us for the United States. Multiple countries are chosen by semicolon-separated codes in the path, and dates and filters go in the query string, so plan for those pages rather than API calls.",
+  "screen_tips": "Use the Indicator or Country selectors on data.worldbank.org to pick a series, then the Table or Chart tab to read values. Latest years often show blank cells because the data is not yet published, so look back a year or two for values. The Download button exports CSV or Excel for the current selection."
+ },
+ {
+  "key": "x",
+  "name": "X (Twitter)",
+  "url_prefixes": [
+   "x.com",
+   "x.com/i/article",
+   "x.com/i/flow/login",
+   "x.com/home"
+  ],
+  "names": [
+   "x",
+   "twitter",
+   "x.com",
+   "twitter.com"
+  ],
+  "planner_tips": "Open https://x.com/i/flow/login rather than https://x.com/ to get the full sign-in form, and ask the user for credentials instead of guessing them. Google one-click sign-in cannot be automated, so ask the user to click it themselves. After login the home feed is at https://x.com/home. A public post's article card may redirect anonymously to a login page, so do not treat that as the post being private; if the author's canonical external article link is recoverable from the public post or their cross-posted page, open that link directly, otherwise report the X Article body as inaccessible.",
+  "screen_tips": "The inline home composer's Post button is the one at the bottom of the feed box, while a Post button in a pop-up compose dialog is a different control, so use the one that matches the surface that opened. If a Grok side panel appears unexpectedly, click a neutral area like the left sidebar to dismiss it before typing. A successful post shows a toast reading Your post was sent. at the bottom of the page. On a LinkedIn cross-post, a sign-in modal may cover the page while the post text and links are still visible behind it; read the visible links and do not enter credentials there."
+ },
+ {
+  "key": "xiaohongshu",
+  "name": "Xiaohongshu",
+  "url_prefixes": [
+   "xiaohongshu.com/search_result",
+   "xiaohongshu.com/explore"
+  ],
+  "names": [
+   "xiaohongshu",
+   "xhs",
+   "xiaohongshu.com",
+   "little red book",
+   "red note",
+   "小红书"
+  ],
+  "planner_tips": "For searches, open https://www.xiaohongshu.com/search_result?keyword=<url-encoded keyword>&source=web_explore_feed directly instead of typing in the home search box. To sort by latest, the results page has no top-level latest tab; the sort is under the 筛选 control, so the agent must open the filters and pick 最新. Raw links like https://www.xiaohongshu.com/explore/<id> often redirect to an app-only gate, so open posts by clicking a result card from search results, which keeps the xsec_token needed for reopening. Logging in is not described as required for search results, but some sessions may hit a login wall.",
+  "screen_tips": "The 筛选 button sits in the upper-right of the results header; open it to find the 排序依据 section, where 综合, 最新, 最多点赞, 最多评论 and 最多收藏 are listed. Choose the visible 最新 pill inside that section, since duplicate hidden copies of the label exist, and the 筛选 button changes to 已筛选 when latest sort is active. After choosing it, wait for the skeleton placeholders to give way to refreshed results. Pressing Enter in the search box does not always run the search, so confirm the URL changed to search_result or the result grid updated."
+ },
+ {
+  "key": "youtube",
+  "name": "YouTube",
+  "url_prefixes": [
+   "youtube.com/watch",
+   "youtube.com"
+  ],
+  "names": [
+   "youtube",
+   "yt",
+   "youtube videos"
+  ],
+  "planner_tips": "Open watch pages as https://www.youtube.com/watch?v=VIDEO_ID, and search with https://www.youtube.com/results?search_query=QUERY. Channels open at youtube.com/@handle or youtube.com/channel/CHANNEL_ID. Public videos, search, and channels need no login; age-restricted or login-gated videos require signing in.",
+  "screen_tips": "After the page loads, wait a few seconds before using controls because the player and metadata hydrate late. To read a transcript, expand the description with the Expand control, then click Show transcript and wait for the transcript panel to appear on the side. Ignore hidden duplicate buttons and click only visible ones. Auto-generated captions can misspell names, numbers, and technical terms, so verify those against the timestamped transcript."
+ },
+ {
+  "key": "zillow",
+  "name": "Zillow",
+  "url_prefixes": [
+   "zillow.com"
+  ],
+  "names": [
+   "zillow"
+  ],
+  "planner_tips": "Search pages work directly: use https://www.zillow.com/homes/San-Francisco,-CA_rb/ for for-sale listings, /san-francisco-ca/rentals/ for rentals, and /san-francisco-ca/sold/ for recently sold homes. Pagination adds /2_p/, /3_p/ to the search URL, and filters are path segments like /homes/3-_beds/ or /homes/for_sale/San-Francisco,-CA/0-1800000_price/. Individual /homedetails/ property pages are often blocked by a bot wall, so plan for listing-level data from search results, and check each page before relying on it. No login is needed to view search results.",
+  "screen_tips": "Property detail pages may show a captcha or block page instead of listing content; if that happens, do not rely on that page and consider a syndicated listing site with the same photos. Search results show price, beds, baths, and address on each card, and clicking a card opens its detail page. Price and status labels vary by tab: for-sale, rentals, and sold each show different fields on the cards."
+ }
+]

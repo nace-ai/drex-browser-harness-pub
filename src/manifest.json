@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Drex Browser Agent",
+  "version": "0.1.0",
+  "description": "Give it any task in plain words. Drex Max does the clicking and typing; an LLM plans, reads and helps when Drex is unsure.",
+  "action": {
+    "default_title": "Open Drex"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["sidePanel", "debugger", "tabs", "tabGroups", "storage", "notifications", "alarms"],
+  "host_permissions": [
+    "https://console.nace.ai/*",
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://api.fireworks.ai/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*"
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      },
+      "description": "Open Drex"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Flights NYC to SFO</title>
+<style>
+body{font:15px/1.5 system-ui;margin:0;background:#fff}
+.top{padding:16px 24px;border-bottom:1px solid #ddd;display:flex;gap:10px}
+.chip{border:1px solid #bbb;border-radius:8px;padding:6px 14px;background:#fff;cursor:pointer}
+.list{max-width:760px;margin:16px auto}
+.f{display:flex;justify-content:space-between;padding:14px;border-bottom:1px solid #eee}
+.back{position:fixed;inset:0;background:#0003}
+.dlg{position:fixed;top:70px;left:24px;width:340px;background:#fff;border-radius:10px;box-shadow:0 4px 20px #0004;padding:16px}
+/* Material-style radio: the native input is invisible (opacity 0) and sits over a drawn circle */
+.opt{position:relative;display:flex;align-items:center;gap:12px;height:48px}
+.opt input{position:absolute;left:0;top:0;width:48px;height:48px;margin:0;opacity:0;cursor:pointer;z-index:1}
+.dot{width:20px;height:20px;margin:14px;border:2px solid #555;border-radius:50%;box-sizing:border-box}
+.opt input:checked + .dot{border-color:#1a73e8;background:radial-gradient(#1a73e8 45%,transparent 50%)}
+</style></head>
+<body>
+<div class="top"><button class="chip" id="stops">Stops</button><button class="chip">Airlines</button><button class="chip">Price</button></div>
+<div class="list" id="list"></div>
+<script>
+const FLIGHTS = [
+  { a: "SkyStep", stops: 1, price: 189, t: "6:05 AM - 4:40 PM, 1 stop in DEN" },
+  { a: "Delta", stops: 0, price: 247, t: "8:00 AM - 11:35 AM, Nonstop" },
+  { a: "JetBlue", stops: 0, price: 229, t: "1:15 PM - 4:55 PM, Nonstop" },
+  { a: "United", stops: 2, price: 171, t: "5:30 AM - 6:10 PM, 2 stops" },
+  { a: "Alaska", stops: 0, price: 263, t: "6:45 PM - 10:20 PM, Nonstop" },
+  { a: "American", stops: 1, price: 205, t: "9:10 AM - 5:00 PM, 1 stop in ORD" },
+];
+let maxStops = 9;
+const draw = () => document.getElementById("list").innerHTML = FLIGHTS.filter((f) => f.stops <= maxStops)
+  .map((f) => `<div class="f"><span><b>${f.a}</b> ${f.t}</span><span>$${f.price} round trip</span></div>`).join("");
+draw();
+const OPTS = [["Any number of stops", 9], ["Nonstop only", 0], ["1 stop or fewer", 1], ["2 stops or fewer", 2]];
+document.getElementById("stops").onclick = () => {
+  const d = document.createElement("div");
+  d.innerHTML = `<div class="back"></div><div class="dlg" role="dialog" aria-label="Stops"><h2 style="margin:0 0 8px;font-size:18px">Stops</h2>
+    <div role="radiogroup" aria-label="Stops">${OPTS.map(([n, v]) => `<label class="opt"><input type="radio" name="stops" value="${v}" aria-label="${n}" ${v === maxStops ? "checked" : ""}><span class="dot"></span>${n}</label>`).join("")}</div>
+    <button aria-label="Close dialog" style="position:absolute;top:12px;right:12px">✕</button></div>`;
+  document.body.append(d);
+  d.querySelectorAll("input").forEach((i) => (i.onchange = () => { maxStops = +i.value; draw(); }));
+  const close = () => d.remove();
+  d.querySelector(".back").onclick = close;
+  d.querySelector("[aria-label='Close dialog']").onclick = close;
+  addEventListener("keydown", (e) => e.key === "Escape" && close(), { once: true });
+};
+</script></body></html>

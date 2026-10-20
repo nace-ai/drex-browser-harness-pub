@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Golden Dragon - Menu</title>
+<style>body{font:15px/1.5 system-ui;margin:0;background:#fafafa}header{display:flex;justify-content:space-between;align-items:center;padding:12px 24px;background:#fff;border-bottom:1px solid #eee}
+main{max-width:860px;margin:20px auto;padding:0 20px}h2{margin:24px 0 8px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.card{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px;position:relative;min-height:84px}.card .p{color:#555}
+.add{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;border:0;background:#191919;color:#fff;font-size:18px;cursor:pointer}
+#drawer{position:fixed;top:0;right:0;width:320px;height:100%;background:#fff;box-shadow:-4px 0 20px #0002;padding:20px}
+#drawer li{display:flex;justify-content:space-between}</style></head>
+<body><header><b>Golden Dragon</b><button id="cartBtn" aria-label="0 items, open cart">Cart</button></header>
+<main><h2>Mains</h2><div class="grid" id="mains"></div><h2>Drinks</h2><div class="grid" id="drinks"></div></main>
+<aside id="drawer" role="dialog" aria-label="Your cart" hidden><h3>Your cart</h3><ul id="lines"></ul><p id="sub"></p><button id="closeCart">Close</button></aside>
+<script>
+// Every item has the same icon button labelled only "Add item to cart"; the cart shows what is in it only when opened.
+const MAINS = [["Orange Chicken", 13.5], ["Kung Pao Chicken", 14.25], ["Beef Broccoli", 15.0], ["Mapo Tofu", 12.0], ["Sweet and Sour Pork", 14.0], ["Shrimp Fried Rice", 13.0]];
+const DRINKS = [["Coca-Cola", 3.25], ["Jasmine Iced Tea", 3.75], ["Lychee Soda", 4.5]];
+const cart = JSON.parse(localStorage.getItem("menu-cart") || "[]");
+const save = () => { localStorage.setItem("menu-cart", JSON.stringify(cart)); document.getElementById("cartBtn").setAttribute("aria-label", `${cart.length} items, open cart`); document.getElementById("cartBtn").textContent = `Cart (${cart.length})`; };
+const card = ([n, p]) => `<div class="card"><b>${n}</b><div class="p">$${p.toFixed(2)}</div><button class="add" aria-label="Add item to cart" data-n="${n}" data-p="${p}">+</button></div>`;
+document.getElementById("mains").innerHTML = MAINS.map(card).join("");
+document.getElementById("drinks").innerHTML = DRINKS.map(card).join("");
+document.querySelectorAll(".add").forEach((b) => b.onclick = () => { cart.push([b.dataset.n, +b.dataset.p]); save(); });
+const drawer = document.getElementById("drawer");
+document.getElementById("cartBtn").onclick = () => { document.getElementById("lines").innerHTML = cart.map(([n, p]) => `<li><span>${n}</span><span>$${p.toFixed(2)}</span></li>`).join("") || "<li>Empty</li>";
+  document.getElementById("sub").textContent = `Subtotal $${cart.reduce((a, [, p]) => a + p, 0).toFixed(2)}`; drawer.hidden = false; };
+document.getElementById("closeCart").onclick = () => (drawer.hidden = true);
+save();
+</script></body></html>

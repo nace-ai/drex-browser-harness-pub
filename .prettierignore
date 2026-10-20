@@ -1,0 +1,19 @@
+# Built, vendored or written by a tool
+dist/
+runs/
+third_party/
+eval/.cache/
+eval/out/
+package-lock.json
+src/sites.json
+# Copies of real sites' pages: the agent is tested on them as they are
+e2e/site/
+# Prose is wrapped by hand, and Prettier pads every table row to the widest cell
+*.md
+docs/
+.worktrees/
+runner/extension/
+
+runner/protocol/
+runner/build-info.json
+.worker-releases/

@@ -1,0 +1,58 @@
+name: Check
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # GitHub-hosted only. Never add self-hosted runners or secrets to this workflow: it runs on pull requests from forks.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build # the lint, type and format gate runs first
+
+      - name: Lint, types and formatting
+        run: npm run check
+
+      # Playwright's Chromium, so the runner's browser tests run instead of skipping.
+      - name: Install Chromium
+        run: node runner/bin/nace-browser.mjs install --with-deps
+
+      # The worker isolation tests run against the packaged release extension.
+      - name: Release build
+        run: npm run build:release
+
+      # Tests that need real keys skip themselves: this workflow has no secrets.
+      - name: Tests
+        run: npm test
+        env:
+          NACE_REQUIRE_BROWSER_TESTS: "1"
+
+      # The runner package ships the release build: it must pack clean (no keys, no local paths).
+      - name: Pack the runner
+        run: npm pack --dry-run -w runner

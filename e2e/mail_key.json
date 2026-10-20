@@ -1,0 +1,44 @@
+{
+  "about": "The right category for each email in e2e/site/mail/emails.js. Kept outside the served folder so the agent can't read it.",
+  "categories": {
+    "1": "work",
+    "2": "spam",
+    "3": "promotions",
+    "4": "personal",
+    "5": "work",
+    "6": "spam",
+    "7": "promotions",
+    "8": "work",
+    "9": "personal",
+    "10": "spam",
+    "11": "promotions",
+    "12": "work",
+    "13": "spam",
+    "14": "personal",
+    "15": "promotions",
+    "16": "work",
+    "17": "spam",
+    "18": "promotions",
+    "19": "work",
+    "20": "spam",
+    "21": "personal",
+    "22": "promotions",
+    "23": "work",
+    "24": "spam",
+    "25": "personal",
+    "26": "work",
+    "27": "promotions",
+    "28": "personal",
+    "29": "spam",
+    "30": "promotions"
+  },
+  "mappings": {
+    "Spam,Promotions,Work,Personal": {
+      "spam": "Spam",
+      "promotions": "Promotions",
+      "work": "Work",
+      "personal": "Personal"
+    },
+    "Junk,Newsletters,Keep": { "spam": "Junk", "promotions": "Newsletters", "work": "Keep", "personal": "Keep" }
+  }
+}

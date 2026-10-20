@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Store</title><style>body{font:15px/1.5 system-ui;margin:40px auto;max-width:720px}</style></head>
+<body><h1 id="h"></h1><p>Menu: <b id="m"></b></p>
+<script>const s = new URLSearchParams(location.search).get("s");
+const D = { panda: ["Panda Palace", "Orange Chicken Bowl, $12.40"], jade: ["Jade Garden", "Kung Pao Shrimp, $15.90"] };
+document.title = D[s][0]; document.getElementById("h").textContent = D[s][0]; document.getElementById("m").textContent = D[s][1];</script></body></html>

@@ -1,0 +1,46 @@
+{
+  "name": "drex-browser-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome extension: give it any task in plain words; Drex Max does the clicking, an LLM plans and reads.",
+  "workspaces": [
+    "runner"
+  ],
+  "scripts": {
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc -p tsconfig.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run lint && npm run typecheck && npm run format:check",
+    "build": "npm run check && node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "bundle-diff": "node scripts/bundle-diff.mjs",
+    "build:release": "node build.mjs --release"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.82",
+    "@ai-sdk/fireworks": "3.0.74",
+    "@ai-sdk/google": "4.0.99",
+    "@ai-sdk/openai": "4.0.96",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "@openrouter/ai-sdk-provider": "3.1.0",
+    "ai": "7.0.143",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/chrome": "0.3.5",
+    "devtools-protocol": "0.0.1721602",
+    "e2b": "2.56.0",
+    "esbuild": "0.28.2",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.2"
+  }
+}

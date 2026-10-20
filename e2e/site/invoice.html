@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Invoice INV-1042 - Steppe Utilities</title>
+    <style>
+      body{font:15px/1.5 system-ui;max-width:560px;margin:40px auto;padding:0 20px}
+      table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:6px 0;border-bottom:1px solid #eee}
+      td:last-child{text-align:right}button{padding:10px 22px;font:inherit;background:#191919;color:#fff;border:0;border-radius:6px}
+      #paid{color:#3d7a4a;font-weight:600}
+    </style>
+  </head>
+  <body>
+    <!-- a page for the runner's e2e: paying is a risky click, which a run must not make without a person's OK -->
+    <h1>Invoice INV-1042</h1>
+    <p>Steppe Utilities, electricity for September. Due October 31.</p>
+    <table>
+      <tr><td>Electricity, 312 kWh</td><td>$41.20</td></tr>
+      <tr><td>Service fee</td><td>$3.80</td></tr>
+      <tr><td><b>Total</b></td><td><b>$45.00</b></td></tr>
+    </table>
+    <p>Card on file: Visa ending 4242</p>
+    <button id="pay" onclick="fetch('paid', { method: 'POST' }); document.getElementById('paid').textContent = 'Paid. Thank you!'">Pay now</button>
+    <p id="paid"></p>
+  </body>
+</html>

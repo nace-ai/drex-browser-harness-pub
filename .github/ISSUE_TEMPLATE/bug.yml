@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in Drex Browser Use did not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. **Report security issues privately as described in SECURITY.md, not here.**
+
+        Never paste API keys, tokens, passwords or cookies. Run logs and screenshots contain the text of the pages the
+        agent read: remove anything personal before attaching them, or describe what they show instead.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - Local runner, CLI (nace-browser)
+        - Local runner, MCP server
+        - Chrome extension
+        - Docs
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`nace-browser --version`, the extension's version from chrome://extensions, or the commit you built."
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node version, and the coding agent if one called it (for example Claude Code, Codex, Cursor).
+    validations:
+      required: false
+  - type: textarea
+    id: task
+    attributes:
+      label: Task and start page
+      description: The task you gave, and the page it started on (a public URL if possible).
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+      description: Include the run's `status` and `outcome` if you have them.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output or run log excerpt
+      description: The relevant lines only, with personal data removed.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Stores near you</title>
+<style>body{font:15px/1.5 system-ui;margin:40px auto;max-width:720px}.card{display:block;border:1px solid #ddd;border-radius:10px;padding:14px;margin:10px 0;cursor:pointer}</style></head>
+<body><h1>Chinese food near Cambridge Ave</h1>
+<div class="card" role="link" tabindex="0" data-s="panda"><b>Panda Palace</b> 4.4 ★ · 0.3 mi</div>
+<div class="card" role="link" tabindex="0" data-s="jade"><b>Jade Garden</b> 4.6 ★ · 0.8 mi</div>
+<script>
+// Like DoorDash: a store opens in a new tab without an opener link back to this one
+document.querySelectorAll(".card").forEach((c) => c.onclick = () => window.open(`store.html?s=${c.dataset.s}`, "_blank", "noopener"));
+</script></body></html>

@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'">
+<title>Trusted Types page</title><style>body{font:16px/1.5 system-ui;margin:60px auto;max-width:600px}button{font:inherit;padding:8px 16px}</style></head>
+<body><h1>Account</h1><p>Like Gmail and Google Docs, this page refuses HTML strings (Trusted Types).</p>
+<button id="b">Show code</button><p id="out"></p>
+<script>document.getElementById("b").onclick = () => { document.getElementById("out").textContent = "Your code is 4471"; };</script></body></html>

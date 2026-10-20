@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inbox - Northwind Mail</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, sans-serif; color: #202124; background: #f6f8fc; }
+  header { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+  header .logo { font-weight: 700; font-size: 20px; color: #3b5bdb; }
+  header .who { margin-left: auto; color: #5f6368; font-size: 13px; }
+  .wrap { display: flex; }
+  nav { width: 220px; padding: 8px 12px; }
+  nav .compose { display: inline-block; padding: 14px 22px; border-radius: 16px; background: #c2e7ff; color: #001d35; font-weight: 600; margin-bottom: 12px; }
+  nav a { display: flex; justify-content: space-between; padding: 6px 14px; border-radius: 0 16px 16px 0; color: #202124; text-decoration: none; }
+  nav a.on { background: #d3e3fd; font-weight: 700; }
+  main { flex: 1; background: #fff; border-radius: 16px; margin: 0 16px 16px 0; min-height: calc(100vh - 72px); }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid #eceff1; }
+  .bar .range { margin-left: auto; color: #5f6368; font-size: 13px; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid #dadce0; border-radius: 6px; background: #fff; cursor: pointer; }
+  button:disabled { color: #b0b0b0; cursor: default; }
+  .row { display: flex; align-items: center; gap: 4px; padding: 0 16px 0 8px; border-bottom: 1px solid #f1f3f4; }
+  .row .sel { padding: 0 8px; }
+  .row .open { flex: 1; display: grid; grid-template-columns: 200px 1fr 110px; gap: 12px; padding: 10px 0; color: #202124; text-decoration: none; }
+  .row.checked { background: #c2dbff !important; }
+  .menu { position: absolute; background: #fff; border-radius: 6px; box-shadow: 0 2px 10px #0004; padding: 6px 0; z-index: 5; }
+  .menu button { display: block; width: 100%; border: 0; text-align: left; padding: 8px 20px; border-radius: 0; }
+  .menu button:hover { background: #f1f3f4; }
+  .dialog-back { position: fixed; inset: 0; background: #0006; display: flex; align-items: center; justify-content: center; z-index: 9; }
+  .dialog { background: #fff; border-radius: 10px; padding: 22px 26px; width: 420px; }
+  .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .row:hover { box-shadow: inset 1px 0 #dadce0, inset -1px 0 #dadce0, 0 1px 2px #3c40434d; }
+  .row.unread { font-weight: 700; background: #fff; }
+  .row:not(.unread) { background: #f2f6fc; }
+  .row .snip { color: #5f6368; font-weight: 400; }
+  .row .date { text-align: right; font-size: 12px; }
+  .empty { padding: 60px; text-align: center; color: #5f6368; font-size: 16px; }
+  .msg { padding: 20px 28px; }
+  .msg h1 { font-size: 22px; font-weight: 400; margin: 6px 0 16px; }
+  .msg .meta { color: #5f6368; margin-bottom: 18px; }
+  .msg .meta b { color: #202124; }
+  .msg .body { white-space: pre-wrap; max-width: 760px; }
+  .toast { position: fixed; left: 24px; bottom: 24px; background: #323232; color: #fff; padding: 12px 18px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header><span class="logo">Northwind Mail</span><span class="who">demo@northwind.io</span></header>
+<div class="wrap"><nav id="nav"></nav><main id="main"></main></div>
+<div class="toast" id="toast" hidden></div>
+<script src="emails.js"></script>
+<script>
+// Folders come from ?folders=A,B,C so the same mailbox can be sorted under any categories.
+const params = new URLSearchParams(location.search);
+const FOLDERS = (params.get("folders") || "Spam,Promotions,Work,Personal").split(",").map((f) => f.trim()).filter(Boolean);
+const PER_PAGE = +(params.get("per") || 10);
+const sel = new Set(); // ticked rows (not saved)
+const KEY = "nwmail-state";
+let state = JSON.parse(localStorage.getItem(KEY) || "null");
+if (!state || state.folders.join() !== FOLDERS.join() || params.has("reset")) state = { folders: FOLDERS, placed: {}, read: {}, archived: {} };
+const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+save();
+
+const inbox = () => EMAILS.filter((m) => !state.placed[m.id] && !state.archived[m.id]);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.hidden = true), 2500);
+}
+
+function renderNav(current) {
+  const count = (f) => EMAILS.filter((m) => state.placed[m.id] === f).length;
+  document.getElementById("nav").innerHTML = `<span class="compose">Compose</span>` +
+    `<a href="#/inbox/1" class="${current === "Inbox" ? "on" : ""}"><span>Inbox</span><span>${inbox().length}</span></a>` +
+    FOLDERS.map((f) => `<a href="#/folder/${encodeURIComponent(f)}" class="${current === f ? "on" : ""}"><span>${esc(f)}</span><span>${count(f) || ""}</span></a>`).join("");
+}
+
+function list(items, page, base) {
+  const pages = Math.max(1, Math.ceil(items.length / PER_PAGE));
+  page = Math.min(Math.max(1, page), pages);
+  const shown = items.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const from = items.length ? (page - 1) * PER_PAGE + 1 : 0;
+  const to = (page - 1) * PER_PAGE + shown.length;
+  // Gmail-like: a checkbox per row, and toolbar actions for the ticked rows
+  const any = shown.some((m) => sel.has(m.id));
+  const tools = any ? (FOLDERS.includes("Spam") ? `<button onclick="askSpam()">Report spam</button>` : "") +
+    `<button onclick="archiveSel()">Archive</button><span style="position:relative"><button aria-haspopup="menu" onclick="toggleMenu(event)">Move to ▾</button>` +
+    `<div class="menu" role="menu" id="moveMenu" hidden>${FOLDERS.map((f) => `<button role="menuitem" onclick="moveSel('${esc(f)}')">${esc(f)}</button>`).join("")}</div></span>` : "";
+  const all = shown.length && shown.every((m) => sel.has(m.id));
+  const bar = `<div class="bar"><input type="checkbox" aria-label="Select all" ${all ? "checked" : ""} onchange="selectAll(this.checked)">${tools}` +
+    `<span class="range">${from}–${to} of ${items.length}</span>` +
+    `<button aria-label="Newer" ${page > 1 ? "" : "disabled"} onclick="location.hash='${base}/${page - 1}'">‹ Newer</button>` +
+    `<button aria-label="Older" ${page < pages ? "" : "disabled"} onclick="location.hash='${base}/${page + 1}'">Older ›</button></div>`;
+  shownIds = shown.map((m) => m.id);
+  const rows = shown.map((m) => `<div role="row" class="row ${state.read[m.id] ? "" : "unread"} ${sel.has(m.id) ? "checked" : ""}">` +
+    `<span role="gridcell" class="sel"><input type="checkbox" aria-label="Select" ${sel.has(m.id) ? "checked" : ""} onchange="tickRow(${m.id}, this.checked)"></span>` +
+    `<a class="open" href="#/msg/${m.id}"><span>${esc(m.from)}</span><span>${esc(m.subject)} <span class="snip">- ${esc(m.body.slice(0, 70))}</span></span><span class="date">${m.date}</span></a></div>`).join("");
+  return bar + (rows ? `<div role="grid" aria-label="Messages">${rows}</div>` : `<div class="empty">Your inbox is empty. Nice work.</div>`);
+}
+
+let shownIds = [];
+function tickRow(id, on) { on ? sel.add(id) : sel.delete(id); render(); }
+function selectAll(on) { for (const id of shownIds) on ? sel.add(id) : sel.delete(id); render(); }
+function toggleMenu(e) { e.stopPropagation(); const m = document.getElementById("moveMenu"); m.hidden = !m.hidden; }
+function moveSel(folder) {
+  const n = sel.size;
+  for (const id of sel) state.placed[id] = folder;
+  sel.clear();
+  save();
+  toast(`${n} conversation${n > 1 ? "s" : ""} moved to ${folder}.`);
+  render();
+}
+function archiveSel() { const n = sel.size; for (const id of sel) state.archived[id] = true; sel.clear(); save(); toast(`${n} archived.`); render(); }
+// Like Gmail, reporting spam asks first
+function askSpam() {
+  const d = document.createElement("div");
+  d.className = "dialog-back";
+  d.innerHTML = `<div class="dialog" role="dialog" aria-label="Report spam"><b>Report spam?</b><p>${sel.size} conversation${sel.size > 1 ? "s" : ""} will be moved to Spam.</p>` +
+    `<div class="actions"><button id="spamCancel">Cancel</button><button id="spamOk">Report spam</button></div></div>`;
+  document.body.append(d);
+  d.querySelector("#spamCancel").onclick = () => d.remove();
+  d.querySelector("#spamOk").onclick = () => { d.remove(); moveSel("Spam"); };
+}
+addEventListener("click", () => { const m = document.getElementById("moveMenu"); if (m) m.hidden = true; });
+
+function render() {
+  const h = location.hash || "#/inbox/1";
+  const main = document.getElementById("main");
+  let m;
+  if ((m = h.match(/^#\/msg\/(\d+)/))) {
+    const mail = EMAILS.find((e) => e.id === +m[1]);
+    state.read[mail.id] = true;
+    save();
+    renderNav(state.placed[mail.id] || "Inbox");
+    document.title = `${mail.subject} - Northwind Mail`;
+    const moves = FOLDERS.filter((f) => f !== state.placed[mail.id]).map((f) => `<button onclick="move(${mail.id}, '${esc(f)}')">Move to ${esc(f)}</button>`).join("");
+    main.innerHTML = `<div class="bar"><button onclick="location.hash='#/inbox/1'">← Back to inbox</button>` +
+      `<button onclick="archive(${mail.id})">Archive</button>${moves}<button onclick="toast('Replies are turned off in this demo.')">Reply</button></div>` +
+      `<div class="msg"><h1>${esc(mail.subject)}</h1><div class="meta"><b>${esc(mail.from)}</b> &lt;${esc(mail.addr)}&gt; to me · ${mail.date}</div>` +
+      `<div class="body">${esc(mail.body)}</div></div>`;
+  } else if ((m = h.match(/^#\/folder\/([^/]+)/))) {
+    const f = decodeURIComponent(m[1]);
+    renderNav(f);
+    document.title = `${f} - Northwind Mail`;
+    main.innerHTML = list(EMAILS.filter((e) => state.placed[e.id] === f), +(h.split("/")[3] || 1), `#/folder/${encodeURIComponent(f)}`);
+  } else {
+    const page = +((h.match(/^#\/inbox\/(\d+)/) || [])[1] || 1);
+    renderNav("Inbox");
+    document.title = `Inbox (${inbox().length}) - Northwind Mail`;
+    main.innerHTML = list(inbox(), page, "#/inbox");
+  }
+}
+
+function move(id, folder) {
+  state.placed[id] = folder;
+  save();
+  toast(`Moved to ${folder}.`);
+  location.hash = "#/inbox/1";
+}
+
+function archive(id) {
+  state.archived[id] = true;
+  save();
+  toast("Archived.");
+  location.hash = "#/inbox/1";
+}
+
+// ?longpoll=1 keeps one request open at all times, like Gmail's background channel (e2e/serve.py answers /longpoll
+// after 25 s), and fires a short sync request after every action, as Gmail does.
+if (params.has("longpoll")) (async function poll() { for (;;) { try { await fetch("/longpoll?" + Date.now()); } catch { await new Promise((r) => setTimeout(r, 1000)); } } })();
+const sync = () => params.has("longpoll") && fetch("emails.js?sync=" + Date.now()).catch(() => {});
+
+// ?slow=1: a page change shows the old list for 2 s before the new one, like Gmail fetching the next page
+let slowTimer = null;
+addEventListener("hashchange", () => {
+  sync();
+  if (params.has("slow") && /^#\/inbox\/\d+/.test(location.hash)) { clearTimeout(slowTimer); slowTimer = setTimeout(render, 2000); return; }
+  render();
+});
+render();
+</script>
+</body>
+</html>

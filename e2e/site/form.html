@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Astana Tech Meetup - Registration</title>
+<style>body{font:15px/1.5 system-ui;max-width:560px;margin:40px auto;padding:0 20px}label{display:block;margin:14px 0 4px;font-weight:600}
+input[type=text],input[type=email],select{width:100%;padding:8px;font:inherit}fieldset{border:1px solid #ccc;margin-top:14px}
+.inline label{display:inline;font-weight:400;margin-right:12px}button{margin-top:20px;padding:10px 22px;font:inherit}#ok{color:#3d7a4a;font-weight:600}</style></head>
+<body><h1>Astana Tech Meetup</h1><p>Register for the November 14 meetup.</p>
+<form id="f">
+<label for="name">Full name</label><input id="name" type="text" required>
+<label for="email">Email</label><input id="email" type="email" required>
+<label for="country">Country</label><select id="country"><option value="">Choose...</option><option>Kazakhstan</option><option>Kyrgyzstan</option><option>Uzbekistan</option><option>Other</option></select>
+<fieldset class="inline"><legend>Ticket</legend>
+<input type="radio" name="ticket" id="t1" value="standard"><label for="t1">Standard ($20)</label>
+<input type="radio" name="ticket" id="t2" value="student"><label for="t2">Student (free)</label>
+<input type="radio" name="ticket" id="t3" value="vip"><label for="t3">VIP ($80)</label></fieldset>
+<p><input type="checkbox" id="terms"> <label for="terms" style="display:inline;font-weight:400">I accept the code of conduct</label></p>
+<button type="submit">Register</button></form><p id="ok"></p>
+<script>document.getElementById("f").onsubmit=e=>{e.preventDefault();const d={name:document.getElementById("name").value,email:email.value,country:country.value,ticket:(document.querySelector("[name=ticket]:checked")||{}).value,terms:terms.checked};document.getElementById("ok").textContent="Registered: "+JSON.stringify(d);localStorage.setItem("form-registration",JSON.stringify(d));};</script>
+</body></html>

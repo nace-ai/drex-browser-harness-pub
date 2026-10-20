@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contacts</title>
+<style>body{font:15px/1.5 system-ui;margin:30px auto;max-width:640px}.row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #eee}
+.row span{color:#555}form{display:flex;gap:8px;margin-top:6px}</style></head>
+<body><h1>Contacts</h1><div id="list"></div>
+<script>
+// Every row has the same "Edit" button; the right one is only known by its row.
+const K = "contacts";
+const people = JSON.parse(localStorage.getItem(K) || "null") || [["Aigerim Bekova", "+7 701 111 2233"], ["Aliya Nurlanova", "+7 702 444 5566"], ["Marat Ospanov", "+7 705 777 8899"], ["Timur Akhmetov", "+7 707 123 4567"], ["Daniyar Sultanov", "+7 708 765 4321"]];
+const save = () => localStorage.setItem(K, JSON.stringify(people));
+function draw(editing = -1) {
+  document.getElementById("list").innerHTML = people.map(([n, ph], i) => i === editing
+    ? `<div class="row"><div><b>${n}</b><form onsubmit="event.preventDefault();people[${i}][1]=this.ph.value;save();draw()"><input name="ph" aria-label="Phone number" value="${ph}"><button>Save</button></form></div></div>`
+    : `<div class="row"><div><b>${n}</b><br><span>${ph}</span></div><button onclick="draw(${i})">Edit</button></div>`).join("");
+}
+save(); draw();
+</script></body></html>

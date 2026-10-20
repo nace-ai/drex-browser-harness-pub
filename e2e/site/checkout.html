@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Burger Yurt</title>
+<style>body{font:15px/1.5 system-ui;margin:0;background:#fafafa}header{position:sticky;top:0;display:flex;gap:12px;justify-content:space-between;align-items:center;padding:12px 24px;background:#fff;border-bottom:1px solid #eee;z-index:2}
+main{max-width:860px;margin:0 auto;padding:0 20px 120px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px;position:relative;min-height:84px}
+.add{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;border:0;background:#191919;color:#fff;cursor:pointer}
+#pop{position:fixed;top:56px;right:16px;width:300px;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 8px 24px #0002;padding:14px;z-index:4}#pop button{display:block;width:100%;margin-top:8px;padding:8px}
+#pop .go{background:#e8382b;color:#fff;border:0;border-radius:6px}fieldset{border:1px solid #ddd;border-radius:8px;margin:12px 0}.place{padding:10px 18px;background:#e8382b;color:#fff;border:0;border-radius:6px;font-size:16px}</style></head>
+<body><header><b>Burger Yurt</b><span>Deliver to <button id="addr">10 Cambridge Ave</button></span><button id="cartBtn" aria-label="0 items, open cart">Cart (0)</button></header>
+<main id="main"></main><div id="note" role="status" aria-live="polite" style="position:fixed;left:16px;bottom:16px"></div>
+<script>
+// A DoorDash-shaped order: adding an item opens a cart popup (Go to Cart / Continue) and "N items in cart"; the time
+// is scheduled at checkout; the order is placed only with Place order. Fictional store; state in localStorage.
+const MENU = [["Burgers", [["Classic Burger", 6.5], ["Double Cheeseburger", 7.9], ["Chicken Burger", 7.2]]], ["Drinks", [["Coke", 2], ["Diet Coke", 2], ["Sprite", 2]]]];
+const DAYS = ["Mon Oct 19", "Tue Oct 20", "Wed Oct 21"];
+const SLOTS = ["7:00 - 8:00 AM", "9:00 - 10:00 AM", "12:00 - 1:00 PM", "6:00 - 7:00 PM"];
+const cart = [];
+const $ = (id) => document.getElementById(id);
+const total = () => `$${cart.reduce((a, [, p]) => a + p, 0).toFixed(2)}`;
+const lines = () => cart.map(([n, p]) => `<li>${n} $${p.toFixed(2)}</li>`).join("");
+function menu() {
+  $("main").innerHTML = MENU.map(([h, items]) => `<h2>${h}</h2><div class="grid">${items.map(([n, p]) =>
+    `<div class="card"><b>${n}</b><div>$${p.toFixed(2)}</div><button class="add" aria-label="Add item to cart" data-n="${n}" data-p="${p}">+</button></div>`).join("")}</div>`).join("");
+  document.querySelectorAll(".add").forEach((b) => b.onclick = () => { cart.push([b.dataset.n, +b.dataset.p]); update(); popup(); });
+}
+function update() {
+  $("cartBtn").textContent = `Cart (${cart.length})`;
+  $("cartBtn").setAttribute("aria-label", `${cart.length} items, open cart`);
+  $("note").textContent = `${cart.length} items in cart`;
+}
+function popup() {
+  $("pop")?.remove();
+  const d = document.createElement("div");
+  d.id = "pop";
+  d.setAttribute("role", "dialog");
+  d.setAttribute("aria-label", "Your cart");
+  d.innerHTML = `<b>Burger Yurt</b> · ${cart.length} items<ul>${lines()}</ul><div>${total()} total before taxes</div><button class="cart">Go to Cart</button><button class="go">Continue</button>`;
+  document.body.append(d);
+  d.querySelector(".cart").onclick = () => { d.remove(); cartPage(); };
+  d.querySelector(".go").onclick = () => { d.remove(); checkout(); };
+}
+function cartPage() {
+  $("main").innerHTML = `<h1>Your cart</h1><ul>${lines() || "<li>Empty</li>"}</ul><p>Subtotal ${total()}</p><button id="toCheckout">Checkout</button> <button id="back">Back to menu</button>`;
+  $("toCheckout").onclick = checkout;
+  $("back").onclick = menu;
+}
+function checkout() {
+  $("main").innerHTML = `<h1>Checkout</h1><p>Deliver to 10 Cambridge Ave, Cambridge, MA</p><ul>${lines()}</ul><p>Subtotal ${total()}</p>
+    <fieldset><legend>Delivery time</legend><label><input type="radio" name="when" value="now" checked> Standard (ASAP)</label>
+    <label><input type="radio" name="when" value="later"> Schedule ahead</label><div id="sched" hidden>
+    <p>${DAYS.map((d) => `<label><input type="radio" name="day" value="${d}"> ${d}</label>`).join(" ")}</p>
+    <label>Time <select id="slot"><option value="">Choose a time</option>${SLOTS.map((s) => `<option>${s}</option>`).join("")}</select></label></div></fieldset>
+    <button class="place" id="place">Place order</button>`;
+  document.querySelectorAll("input[name=when]").forEach((r) => r.onchange = () => ($("sched").hidden = r.value !== "later" || !r.checked));
+  $("place").onclick = () => {
+    const later = document.querySelector("input[name=when]:checked").value === "later";
+    const day = document.querySelector("input[name=day]:checked")?.value || "";
+    const when = later ? `${day} ${$("slot").value}`.trim() : "ASAP";
+    const order = { items: cart.map(([n]) => n), when };
+    localStorage.setItem("checkout-order", JSON.stringify(order));
+    $("main").innerHTML = `<h1>Order placed</h1><p>Your order from Burger Yurt is confirmed.</p><ul>${lines()}</ul><p>Delivery: ${when}, to 10 Cambridge Ave</p>`;
+  };
+}
+$("cartBtn").onclick = cartPage;
+menu();
+</script></body></html>

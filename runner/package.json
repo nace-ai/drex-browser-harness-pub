@@ -1,0 +1,47 @@
+{
+  "name": "@nace-ai/browser",
+  "version": "0.1.0",
+  "description": "Run the Drex browser agent from a coding agent: a CLI and an MCP server over a local Chromium.",
+  "type": "module",
+  "bin": {
+    "nace-browser": "bin/nace-browser.mjs",
+    "drex-browser-run": "bin/drex-browser-run.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "extension/",
+    "README.md",
+    "protocol/",
+    "build-info.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prepack": "node ../build.mjs --release"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "ajv": "8.17.1",
+    "ipaddr.js": "2.2.0",
+    "playwright": "1.64.1",
+    "zod": "4.6.7"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nace-ai/drex-browser-harness-pub.git",
+    "directory": "runner"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "browser",
+    "agent",
+    "mcp",
+    "drex",
+    "playwright"
+  ]
+}

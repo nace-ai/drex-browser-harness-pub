@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Member area</title>
+<style>body{font:15px/1.5 system-ui;margin:0}main{max-width:640px;margin:60px auto;filter:blur(6px)}main.open{filter:none}
+.veil{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center}
+.box{background:#fff;border-radius:12px;padding:28px 32px;width:380px;box-shadow:0 10px 40px #0005}
+.go{margin-top:18px;background:#1a7f5a;color:#fff;border-radius:8px;padding:10px 0;text-align:center;font-weight:600;cursor:pointer;user-select:none}</style></head>
+<body>
+<div class="veil" id="veil"><div class="box"><h2>Welcome back</h2><p>We updated our terms. Continue to see your member area.</p>
+<div class="go" id="go">Continue to my account</div></div></div>
+<main id="m"><h1>Member area</h1><p>Your one-time access code is <b id="code">QX-4471</b>.</p></main>
+<script>document.getElementById("go").addEventListener("click",()=>{document.getElementById("veil").remove();localStorage.setItem("hard-continued","1");document.getElementById("m").classList.add("open");});
+document.addEventListener("keydown",e=>e.preventDefault(),true);</script>
+</body></html>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Golden Arches Diner</title>
+<style>body{font:15px/1.5 system-ui;margin:0;background:#fafafa}header{position:sticky;top:0;display:flex;gap:12px;justify-content:space-between;align-items:center;padding:12px 24px;background:#fff;border-bottom:1px solid #eee;z-index:2}
+main{max-width:900px;margin:0 auto;padding:0 20px 200px}.hero{height:300px;background:#f3d36b;border-radius:12px;margin:16px 0;display:flex;align-items:end;padding:16px;font-size:32px;font-weight:700}
+.row{display:flex;gap:12px;align-items:center;justify-content:space-between}.deals{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.deal{background:#fff;border:1px solid #eee;border-radius:10px;padding:14px;height:70px}
+.rail{display:flex;gap:12px;overflow:hidden}.fcard{flex:0 0 170px;background:#fff;border:1px solid #eee;border-radius:10px;overflow:hidden}.media{height:110px;background:#ddd;position:relative}
+.btn{width:30px;height:30px;border-radius:50%;border:0;background:#191919;color:#fff;cursor:pointer}.media .btn.add{position:absolute;right:8px;bottom:8px}.fcard .info{padding:8px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px;position:relative;min-height:84px}.card .btn.add{position:absolute;right:10px;bottom:10px}
+#pop{position:fixed;top:56px;right:16px;width:300px;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 8px 24px #0002;padding:14px;z-index:4}#pop button{display:block;width:100%;margin-top:8px;padding:8px}
+.dlg{position:fixed;inset:0;background:#0005;display:flex;align-items:center;justify-content:center;z-index:5}.dlg>div{background:#fff;border-radius:12px;padding:20px;width:380px}.place{padding:10px 18px;background:#e8382b;color:#fff;border:0;border-radius:6px;font-size:16px}</style></head>
+<body><header><b>Golden Arches Diner</b><span>Scheduled delivery: <span id="when"></span> <button id="changeTime">Change time</button></span><button id="cartBtn" aria-label="0 items, open cart">Cart (0)</button></header>
+<main id="main"></main><div id="note" role="status" aria-live="polite" style="position:fixed;left:16px;bottom:16px"></div>
+<script>
+// The DoorDash breakfast trap: the menu depends on the scheduled time, and the earliest Tuesday slot (4:20 AM) is on
+// the breakfast menu, so a search for "burger" finds nothing until a later time is chosen. The Featured rail's "+"
+// buttons sit ten levels below the item's name, next to a Save button styled the same. Fictional store; the order
+// is kept in localStorage ("breakfast-order").
+const SLOTS = ["4:20 AM", "7:00 AM", "11:30 AM", "12:30 PM", "6:00 PM"];
+const BREAKFAST = [["Breakfast", [["Sausage Egg Muffin Meal", 11.99], ["Big Breakfast with Hotcakes", 8.99], ["Hash Browns", 2.2]]]];
+const LUNCH = [["Burgers", [["Classic Burger", 6.5], ["Double Cheeseburger", 7.9], ["Chicken Burger", 7.2]]]];
+const DRINKS = ["Drinks", [["Coke", 2], ["Diet Coke", 2], ["Orange Juice", 3.1]]];
+let slot = 0;
+let query = "";
+const cart = [];
+const $ = (id) => document.getElementById(id);
+const breakfast = () => slot < 2;
+const sections = () => [...(breakfast() ? BREAKFAST : LUNCH), DRINKS];
+const total = () => `$${cart.reduce((a, [, p]) => a + p, 0).toFixed(2)}`;
+const lines = () => cart.map(([n, p]) => `<li>${n} $${p.toFixed(2)}</li>`).join("");
+const deep = (inner, n) => (n ? `<div class="l${n}">${deep(inner, n - 1)}</div>` : inner);
+const addBtn = (n, p) => `<button class="btn add" aria-label="Add item to cart" data-n="${n}" data-p="${p}">+</button>`;
+function store() {
+  $("when").textContent = `Tue Oct 20, ${SLOTS[slot]}`;
+  const featured = sections()[0][1];
+  const found = sections().map(([h, items]) => [h, items.filter(([n]) => !query || n.toLowerCase().includes(query.toLowerCase()))]).filter(([, items]) => items.length);
+  $("main").innerHTML = `<div class="hero">Golden Arches Diner</div>
+    <div class="row"><span>4.5 ★ · Burgers · 5.1 mi</span><input type="search" id="q" aria-label="Item Search" placeholder="Search the menu" value="${query}"></div>
+    <div class="deals"><div class="deal">Buy 1, get 1 free</div><div class="deal">Free item on $15+</div></div>
+    <h2>Featured Items</h2><div class="rail">${featured.map(([n, p]) => `<div class="fcard"><div class="media">${deep(addBtn(n, p), 10)}<button class="btn" aria-label="Save item">♡</button></div><div class="info"><b>${n}</b><div>$${p.toFixed(2)}</div></div></div>`).join("")}</div>
+    <h2>${breakfast() ? "Breakfast Menu · 4:00 AM - 10:30 AM" : "Lunch & Dinner Menu · 10:30 AM - 4:00 AM"}</h2>
+    ${found.length ? found.map(([h, items]) => `<h3>${h}</h3><div class="grid">${items.map(([n, p]) => `<div class="card"><b>${n}</b><div>$${p.toFixed(2)}</div>${addBtn(n, p)}</div>`).join("")}</div>`).join("")
+      : `<div><b>No Results</b><p>There are no items that match your search. Try searching for a different item.</p><button id="reset">Reset Search</button></div>`}`;
+  $("q").onkeydown = (e) => { if (e.key === "Enter") { query = $("q").value.trim(); store(); $("q").focus(); } };
+  $("reset")?.addEventListener("click", () => { query = ""; store(); });
+  document.querySelectorAll(".add").forEach((b) => b.onclick = () => { cart.push([b.dataset.n, +b.dataset.p]); update(); popup(); });
+}
+function update() {
+  $("cartBtn").textContent = `Cart (${cart.length})`;
+  $("cartBtn").setAttribute("aria-label", `${cart.length} items, open cart`);
+  $("note").textContent = `${cart.length} items in cart`;
+}
+function popup() {
+  $("pop")?.remove();
+  const d = document.createElement("div");
+  d.id = "pop";
+  d.setAttribute("role", "dialog");
+  d.setAttribute("aria-label", "Your cart");
+  d.innerHTML = `<b>Golden Arches Diner</b> · ${cart.length} items<ul>${lines()}</ul><div>${total()} total before taxes</div><button class="go">Continue</button><button class="x">Close</button>`;
+  document.body.append(d);
+  d.querySelector(".go").onclick = () => { d.remove(); checkout(); };
+  d.querySelector(".x").onclick = () => d.remove();
+}
+function changeTime() {
+  const d = document.createElement("div");
+  d.className = "dlg";
+  d.innerHTML = `<div role="dialog" aria-label="Schedule your order"><h3>Schedule your order</h3><p>Tuesday Oct 20</p>
+    ${SLOTS.map((s, i) => `<label><input type="radio" name="slot" value="${i}" ${i === slot ? "checked" : ""}> ${s}</label><br>`).join("")}
+    <button id="saveTime">Save</button></div>`;
+  document.body.append(d);
+  d.querySelector("#saveTime").onclick = () => { slot = +d.querySelector("input[name=slot]:checked").value; d.remove(); $("pop")?.remove(); store(); };
+}
+function checkout() {
+  $("main").innerHTML = `<h1>Checkout</h1><p>Deliver to 10 Cambridge Ave, Cambridge, MA</p><p>Scheduled delivery: Tue Oct 20, ${SLOTS[slot]}</p>
+    <h3>Cart summary</h3><ul>${lines()}</ul><p>Subtotal ${total()}</p><button id="back">Back to store</button> <button class="place" id="place">Place Order ${total()}</button>`;
+  $("back").onclick = store;
+  $("place").onclick = () => {
+    localStorage.setItem("breakfast-order", JSON.stringify({ items: cart.map(([n]) => n), when: `Tue Oct 20 ${SLOTS[slot]}` }));
+    $("main").innerHTML = `<h1>Order placed</h1><p>Your order from Golden Arches Diner is confirmed.</p><ul>${lines()}</ul><p>Delivery: Tue Oct 20, ${SLOTS[slot]}</p>`;
+  };
+}
+$("changeTime").onclick = changeTime;
+$("cartBtn").onclick = () => (cart.length ? checkout() : null);
+store();
+</script></body></html>

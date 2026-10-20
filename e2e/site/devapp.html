@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Tasklet - Create your account</title>
+<!-- A page "under development" for coding-agent tests (e2e/agent_bridge.py). Planted bugs: a valid signup calls an
+     API that doesn't exist (404) and then throws, so the welcome message never shows; the "Show" button throws. -->
+<style>body{font:15px/1.5 system-ui;max-width:420px;margin:48px auto;padding:0 20px;color:#222}h1{font-size:22px}
+label{display:block;margin:14px 0 4px;font-weight:600}input{width:100%;padding:8px;font:inherit;box-sizing:border-box}
+.row{display:flex;gap:8px}.row input{flex:1}.err{color:#b3261e;font-size:13px;min-height:18px;margin:4px 0 0}
+button{padding:9px 18px;font:inherit;cursor:pointer}#welcome{color:#2e7d32;font-weight:600}</style></head>
+<body><h1>Create your Tasklet account</h1>
+<form id="f" novalidate>
+<label for="name">Name</label><input id="name" autocomplete="off">
+<label for="email">Email</label><input id="email" autocomplete="off"><p class="err" id="emailErr"></p>
+<label for="pw">Password</label><div class="row"><input id="pw" type="password"><button type="button" id="show">Show</button></div>
+<p class="err" id="pwErr"></p>
+<button type="submit">Create account</button></form>
+<p id="welcome"></p>
+<script>
+const $ = (id) => document.getElementById(id);
+$("show").onclick = () => { $("password").type = "text"; }; // bug: the field's id is "pw"
+$("f").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("email").value.trim(), pw = $("pw").value;
+  $("emailErr").textContent = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? "" : "Enter a valid email address.";
+  $("pwErr").textContent = pw.length >= 8 ? "" : "Password must be at least 8 characters.";
+  if ($("emailErr").textContent || $("pwErr").textContent) return;
+  const r = await fetch("/api/signup", { method: "GET" }); // bug: no such endpoint
+  const user = r.ok ? await r.json() : null;
+  $("welcome").textContent = `Welcome, ${user.name}!`; // throws when the call failed
+};
+</script>
+</body></html>
