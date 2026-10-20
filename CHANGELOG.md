@@ -4,6 +4,24 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## [0.1.1] - 2026-10-20
+
+### Fixed
+
+- **Chrome extension**: a run that collects data and then writes it into a page (for example a Google Sheet) now hands
+  that page the collected records as a table, and types the whole table into the sheet at once instead of cell by cell.
+  A one-line input refuses a multi-line table instead of mangling it.
+- **Chrome extension**: a step the LLM's check finds already done counts as done, so a finished run no longer fails
+  its last check; a check's repair never pulls a later step forward.
+- **Chrome extension**: a tab the agent opens on another site gets its own index in the plan, so a step aimed at the
+  user's tab never lands on the agent's.
+- **Chrome extension**: when the agent reuses one of its own tabs, its old page is no longer taken for the page a
+  planned URL opened.
+
+### Added
+
+- `e2e/run.py --profile` runs a browser test in a kept Chrome profile, for sites that need a login made once by hand.
+
 ## [0.1.0] - 2026-10-20
 
 The first public release of the source of Drex Browser Use. Nothing is published to npm or the Chrome Web Store: build the runner and the

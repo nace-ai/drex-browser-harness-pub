@@ -48,6 +48,8 @@ ap.add_argument("--site-header", action="append", default=[], help="'Name: value
 ap.add_argument("--run-limits", default="", help='run limits for the agent as JSON, e.g. {"maxHaikuCalls": 40}')
 ap.add_argument("--site-only", action="store_true", help="resolve no host but --start's and the extension's APIs")
 ap.add_argument("--shots", default="", help="save a screenshot of the agent's tab here whenever the run log grows (see above)")
+ap.add_argument("--profile", default="", help="run in this Chrome profile and keep it (a site login made once by hand, "
+                "e.g. Google for Sheets); default: a fresh profile, removed after the run")
 a = ap.parse_args()
 if a.stop_when_stored and not a.storage:
     ap.error("--stop-when-stored needs --storage (the origin whose localStorage is watched)")
@@ -76,8 +78,9 @@ with sync_playwright() as p, contextlib.ExitStack() as closing:
     # a 420x761 corner of its 1280x800 page with every element box drawn at a third of its place. So no emulation: a
     # real window of a 1280x800 page plus the toolbar, whose screenshots always match the page's innerWidth/innerHeight.
     # Planned runs keep the 2x pixel ratio they had under emulation; --no-plan runs keep 1x.
-    profile = tempfile.mkdtemp(prefix="drex-e2e-")
-    closing.callback(shutil.rmtree, profile, ignore_errors=True)  # after ctx.close() below: the profile goes with the run
+    profile = str(pathlib.Path(a.profile).resolve()) if a.profile else tempfile.mkdtemp(prefix="drex-e2e-")
+    if not a.profile:
+        closing.callback(shutil.rmtree, profile, ignore_errors=True)  # after ctx.close() below: the profile goes with the run
     ctx = p.chromium.launch_persistent_context(
         profile, channel="chromium", headless=not (a.headed or a.realistic),
         no_viewport=True, color_scheme="dark" if a.dark else "light",

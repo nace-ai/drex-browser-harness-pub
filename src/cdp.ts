@@ -340,6 +340,32 @@ const NOTIFY_EXPR = `(() => {
   e.dispatchEvent(new Event("change", { bubbles: true }));
 })()`;
 
+// Tab-separated text (cells split by tabs, rows by lines) as one paste at the focused editor, the way a spreadsheet
+// takes a copied table: Google Sheets fills a cell per value. Typed, every row went into one cell, tabs and all.
+// "taken" when the page took the paste; a plain field doesn't (a paste the user didn't make inserts nothing there), and
+// says "one-line" for a one-line box (an <input>) and "other" for anything else.
+const PASTE_TABLE_FN = `function (text) {
+  let e = document.activeElement;
+  for (;;) {
+    if (e && e.shadowRoot && e.shadowRoot.activeElement) e = e.shadowRoot.activeElement;
+    else if (e && e.tagName === "IFRAME") {
+      let inner = null;
+      try { inner = e.contentDocument; } catch (err) { inner = null; }
+      if (!inner) break;
+      e = inner.activeElement || inner.body;
+    } else break;
+  }
+  if (!e) return "other";
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const rows = text.split("\\n").map((r) => "<tr>" + r.split("\\t").map((c) => "<td>" + esc(c) + "</td>").join("") + "</tr>");
+  const data = new DataTransfer();
+  data.setData("text/plain", text);
+  data.setData("text/html", "<table>" + rows.join("") + "</table>");
+  const paste = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+  e.dispatchEvent(paste);
+  return paste.defaultPrevented ? "taken" : e.tagName === "INPUT" ? "one-line" : "other";
+}`;
+
 // How long the page's DOM has been quiet, from a MutationObserver the probe installs once per document. The click
 // ring (data-drex) doesn't count. Replaces polling scaled-down screenshots, which made Chrome re-render the page at
 // another size for a frame each time: visible flicker on a Retina screen.
@@ -1280,8 +1306,18 @@ export class Tab {
   }
 
   /** Types text at the cursor: short single-line text key by key, longer text pasted line by line with real Enter
-   * presses between lines (so documents and text areas get real lines). */
-  async type(text: string): Promise<void> {
+   * presses between lines (so documents and text areas get real lines). Tab-separated text (a table) goes to the page
+   * as one paste first, which a spreadsheet turns into cells. False when it typed nothing: a table (rows of
+   * tab-separated cells) at a one-line box, which would take each row with an Enter after it (in Sheets' menu search, an
+   * unlabeled button's, that ran "Import file"). */
+  async type(text: string): Promise<boolean> {
+    if (text.includes("\t")) {
+      this.inputAt = performance.now();
+      const table = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+      const where = await this.eval(`(${PASTE_TABLE_FN})(${JSON.stringify(table)})`).catch(() => "other");
+      if (where === "taken") return true;
+      if (where === "one-line" && table.includes("\n")) return false;
+    }
     if (text.length <= KEY_BY_KEY_MAX && !text.includes("\n")) {
       for (const ch of text) await this.typeChar(ch);
     } else {
@@ -1294,6 +1330,7 @@ export class Tab {
       }
     }
     await this.eval(NOTIFY_EXPR).catch(() => undefined);
+    return true;
   }
 
   async scroll(down: boolean): Promise<void> {

@@ -44,8 +44,8 @@ The runner reads keys only from the environment of the process that starts it:
 
 Other LLMs are available on the CLI with `--model` (a model id from `src/models.ts`; an unknown one ends in
 `run_refused`), with their provider's usual variable: `OPENAI_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`,
-`OPENROUTER_API_KEY`, or `FIREWORKS_API_KEY`. MCP runs always use the default model, so they need
-`ANTHROPIC_API_KEY`.
+`OPENROUTER_API_KEY`, or `FIREWORKS_API_KEY`. Accuracy was measured with Claude Haiku 5.5. MCP runs always use the
+default model, so they need `ANTHROPIC_API_KEY`.
 
 The runner hands the keys to the extension with each run. They are never written to the profile's storage, the run
 artifacts or the build, and keys saved in a profile (for example through a headed run's side panel) are ignored.

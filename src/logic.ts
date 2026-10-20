@@ -159,6 +159,22 @@ export function collectionNoteRefs(
   });
 }
 
+/** The notes a step would type ({{name}} in its texts) that hold a collect step's evidence (its JSON of sources, with
+ * the coverage line after it): data to write out first, never text to type. noteResolve's list notes (matches) are not
+ * among them. */
+export function typedEvidenceNotes(step: Pick<Step, "texts">, notes: Record<string, string | undefined>): string[] {
+  const typed = (step.texts ?? []).map((t) => t.text).join("\n");
+  return Object.keys(notes).filter((name) => {
+    if (!new RegExp(`\\{\\{\\s*${name.replace(/[^\w-]/g, "")}\\s*\\}\\}`).test(typed)) return false;
+    const json = jsonObject(notes[name] ?? "");
+    try {
+      return !!json && Array.isArray((JSON.parse(json) as { sources?: unknown }).sources);
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** The step with the notes it names filled in: {{name}} becomes value; a goal, done_when or rules that names the note
  * gets the value beside the name. Texts still holding one of these notes (no value) are dropped: a list reading's JSON
  * is never typed into a page. */

@@ -64,6 +64,10 @@ import type {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const BLANK_GRACE_MS = 1500; // how long a blank tab a click opened may take to start loading its page
+const LANDING_WAIT_MS = 15000; // how long a planned URL may take to redirect to its site (sheets.new: several hops)
+// why a table was not typed (Tab.type): what Drex reads in its history for that move
+const ONE_LINE_TABLE =
+  "Not typed: the cursor is in a one-line box (a search or name box), not in the sheet or document the table goes into. Close that box (Escape) or put the cursor where the table goes, then type it again.";
 /** What is under a screen point (Tab.pointTarget), or null when it can't be read: an unknown target is risky. */
 async function readPoint(tab: Tab, x: number, y: number, opts?: { hover?: boolean }): Promise<PointTarget | null> {
   try {
@@ -128,7 +132,7 @@ interface Decided {
   p: number | undefined;
 }
 /** What the LLM's take-over gives back: a move (with the text the LLM typed, which the step may offer again), or a
- * replan, a hand-over, a failure, the task finished (no plan), or nothing. */
+ * replan, a hand-over, a failure, the task finished (no plan) or the step done (with one), or nothing. */
 type Rescue =
   | {
       act?: undefined;
@@ -139,6 +143,7 @@ type Rescue =
       why?: string;
       ask?: string;
       fail?: string;
+      terminal?: boolean;
       done?: string;
     }
   | {
@@ -250,6 +255,8 @@ export class Agent implements MacroHost {
   declare allowedClicks: Set<string | undefined>;
   declare gesturesAllowed: boolean;
   declare trusted: Set<string>;
+  declare namedUrls: Set<string>;
+  declare landing: { tabId: number; origin: string; from: string | undefined } | null;
   declare recoveries: number;
   declare incompleteChecks: number;
   declare batchApproved: boolean;
@@ -350,6 +357,8 @@ export class Agent implements MacroHost {
     this.allowedClicks = new Set(); // risky controls you allowed for the rest of the task
     this.gesturesAllowed = false; // you allowed point clicks and gestures for the rest of the task
     this.trusted = new Set(); // origins of the user's open tabs and the first plan's URLs: replans may only open these
+    this.namedUrls = new Set(); // the first plan's URLs (the planner saw only the task)
+    this.landing = null; // one of them just opened: the site its own redirect lands on (trustLanding)
     this.site = null;
     this.collectCalls = null;
     this.recoveries = 0; // replans and recovery steps so far (MAX_RECOVERIES)
@@ -481,6 +490,7 @@ export class Agent implements MacroHost {
         const o = L.originOf(u ?? "");
         if (o) this.trusted.add(o);
       }
+      this.namedUrls = new Set(this.plan.steps.map((s) => s.open_url).filter((u): u is string => !!u));
       // A planned run ends with an evidence-backed answer to the whole task. Not with LLM planning off (the LLM only
       // types and checks) or with a fixed plan (a replay of a real run's plan).
       const last = this.plan.steps.at(-1);
@@ -513,6 +523,8 @@ export class Agent implements MacroHost {
         const step = this.plan.steps[this.index];
         this.log("step", { index: this.index, status: "running" });
         if (step == null) throw new Error(`The plan's step ${this.index + 1} is missing.`);
+        if (this.planning && ["browse", "fill", "batch"].includes(String(step.kind)) && this.writeEvidenceFirst(step))
+          continue;
         // noteResolve: a step that acts on a list's notes gets the value it needs from them, not their JSON
         if (accOn("noteResolve") && this.planning && ["browse", "fill", "batch"].includes(String(step.kind)))
           await this.untilStopped(this.resolveNotes(step));
@@ -816,8 +828,12 @@ export class Agent implements MacroHost {
 
   async openOwnTab(url: string): Promise<void> {
     webOnly(url);
+    let from: string | undefined; // the page the agent's own tab showed before this one
+    // the page the agent was on, own tab or the user's: whether the new page is a working copy of its logical tab
+    const fromTab = this.agentTabId ? await chrome.tabs.get(this.agentTabId).catch(() => null) : null;
     if (this.agentTabId && this.ownTab) {
-      const current = await chrome.tabs.get(this.agentTabId).catch(() => null);
+      const current = fromTab;
+      from = current?.url;
       if (current?.url && new URL(current.url).href === new URL(url).href) {
         this.afterShot = null;
         this.log("tab", { what: "continued current page; redundant navigation skipped" });
@@ -830,12 +846,12 @@ export class Agent implements MacroHost {
       await tabsCall(() =>
         chrome.tabs.update(this.agentTabId ?? undefined, { url, ...(this.background ? {} : { active: true }) }),
       );
+      this.bindOwnTab(this.agentTabId, url, fromTab?.url);
     } else {
       const t = await tabsCall(() => chrome.tabs.create({ windowId: this.windowId, url, active: !this.background }));
       this.agentTabId = t.id;
       this.ownTab = true;
-      if (this.activePlanTab !== null && Number.isInteger(this.activePlanTab) && this.activePlanTab >= 0)
-        this.tabBindings.set(this.activePlanTab, t.id);
+      if (t.id != null) this.bindOwnTab(t.id, url, fromTab?.url);
       await this.group(t.id);
     }
     this.observations.push({
@@ -845,7 +861,45 @@ export class Agent implements MacroHost {
       note: "A document navigation occurred. Earlier editable values and selections are historical, not the current state. Check fresh page evidence before any commit.",
     });
     if (this.observations.length > 24) this.observations.shift();
+    this.landing =
+      this.namedUrls.has(url) && this.agentTabId != null
+        ? { tabId: this.agentTabId, origin: L.originOf(url), from }
+        : null;
     this.log("tab", { what: `opened ${L.host(url)}` });
+  }
+
+  /** The logical tab the agent's own tab stands for once it shows url, coming from the page fromUrl: on that page's site
+   * it is a working copy of the plan's current tab and takes its index (a shop's search opened beside the user's shop);
+   * on another site it is a logical tab of its own, and a user's tab keeps its index. Taking the index for any page sent
+   * the steps that name the user's notes tab (use_tab 0) to the agent's Wikipedia tab. */
+  bindOwnTab(tabId: number, url: string, fromUrl: string | undefined): void {
+    const k = this.activePlanTab;
+    if (k === null || !Number.isInteger(k) || k < 0) return; // no logical tab in play
+    const site = L.originOf(url);
+    if ((site && site === L.originOf(fromUrl ?? "")) || k >= this.startTabs.length) {
+      this.tabBindings.set(k, tabId); // a working copy of the plan's tab, or the agent's own logical tab going on
+      return;
+    }
+    const user = this.startTabs[k]?.id;
+    if (user != null) this.tabBindings.set(k, user); // the user's tab, if a working copy of it had taken its index
+    const index = Math.max(-1, ...this.tabBindings.keys()) + 1;
+    this.tabBindings.set(index, tabId);
+    this.activePlanTab = index;
+  }
+
+  /** A URL of the first plan (made from the task alone) that sends its tab on to another site by itself names that
+   * site in effect: https://sheets.new opens docs.google.com. That site is trusted too, or the notes the run gathered
+   * for it are withheld there (the sheet could never get its table). Only the first site the tab reaches before any
+   * move of the agent's: a site a click leads to, or a later redirect, earns nothing. */
+  trustLanding(tabId: number, url: string): void {
+    const landing = this.landing;
+    if (landing?.tabId !== tabId || url === landing.from) return; // a reused tab shows its old page until it commits
+    const origin = L.originOf(url);
+    if (!origin || origin === landing.origin) return; // still loading (about:blank) or still on the named site
+    this.landing = null;
+    if (this.trusted.has(origin)) return;
+    this.trusted.add(origin);
+    this.log("tab", { what: `trusted ${L.host(url)}: the planned ${L.host(landing.origin)} sent the tab there` });
   }
 
   /** The noteResolve accuracy switch: a step that uses a list reading's notes (their JSON of matches) gets, from one
@@ -873,6 +927,45 @@ export class Agent implements MacroHost {
     this.log("note_resolved", { names, value: resolved.value, why: resolved.why, goal: step.goal });
   }
 
+  /** A step that would type a collect step's evidence (its JSON) gets a read step before it that writes that data in
+   * the form the step types it, and types that instead: a plan that typed {{listings}} into a sheet put 4,035
+   * characters of JSON at A1. True when the read step was added (it runs first). */
+  writeEvidenceFirst(step: Step): boolean {
+    const names = L.typedEvidenceNotes(step, this.notes);
+    if (!names.length) return false;
+    const save_as = `${names.join("_")}_text`;
+    const written: Step = {
+      kind: "read",
+      goal: `Write the records gathered in the notes ${names.join(", ")} as the exact text the next step types (next step: ${step.goal}). A table or spreadsheet: tab-separated rows, the header row first, one row per record. Only that text.`,
+      open_url: "",
+      use_tab: -1,
+      done_when: "",
+      rules: "",
+      max_moves: 0,
+      question: "",
+      choices: [],
+      texts: [],
+      save_as,
+    };
+    const typing = {
+      ...step,
+      texts: (step.texts ?? []).map((t) => ({
+        ...t,
+        text: names.reduce(
+          (s, n) => s.replace(new RegExp(`\\{\\{\\s*${n.replace(/[^\w-]/g, "")}\\s*\\}\\}`, "g"), `{{${save_as}}}`),
+          t.text,
+        ),
+      })),
+    };
+    this.plan.steps.splice(this.index, 1, written, typing);
+    this.log("plan", {
+      plan: structuredClone(this.plan),
+      replanned: true,
+      why: `The next step types the gathered records (${names.join(", ")}): they are written out first.`,
+    });
+    return true;
+  }
+
   async prepare(step: { use_tab?: unknown; open_url?: string }): Promise<void> {
     // Planner references are logical indices, never arbitrary browser tab IDs.
     // Unknown or stale references preserve the current working context.
@@ -897,10 +990,36 @@ export class Agent implements MacroHost {
         this.log("tab", { what: "invalid or closed logical tab; continuing current tab", requested: logicalTab });
       }
     }
-    if (step.open_url) await this.openOwnTab(step.open_url);
+    if (step.open_url) {
+      await this.openOwnTab(step.open_url);
+      await this.awaitLanding();
+    }
     if (!this.agentTabId) await this.openOwnTab(START_PAGE);
     const tab = await this.currentTab();
     await tab.settle();
+  }
+
+  /** A first-plan URL just opened: wait (LANDING_WAIT_MS at most) until its tab has left about:blank and either
+   * finished loading on that site or gone on to another (trustLanding). Settling alone ended on about:blank while
+   * https://sheets.new was still on its way to docs.google.com, and the first move then made the redirect a move's. */
+  async awaitLanding(): Promise<void> {
+    const until = performance.now() + LANDING_WAIT_MS;
+    while (this.landing && performance.now() < until) {
+      const { tabId, origin, from } = this.landing;
+      const t = await chrome.tabs.get(tabId).catch(() => null);
+      if (!t) return;
+      const url = t.url ?? "";
+      const here = L.originOf(url);
+      // still on its way while a navigation is pending or a reused tab shows its old page (Sony's store, then sheets.new)
+      if (!t.pendingUrl && url !== from) {
+        if (here && here !== origin) {
+          this.trustLanding(tabId, url);
+          return;
+        }
+        if (here === origin && t.status === "complete") return; // no redirect (a later one by the page still counts)
+      }
+      await sleep(250);
+    }
   }
 
   /** The agent's tab, in front and with the debugger attached. Follows a tab that the last click opened. */
@@ -1088,6 +1207,7 @@ export class Agent implements MacroHost {
         this.afterShot = null;
         const { els, off, vp } = reuse?.elements ?? (await tab.elements());
         const [title, url] = (await tab.eval("[document.title, location.href]")) as [string, string];
+        this.trustLanding(tab.id, url);
         const jpeg = reuse ? reuse.jpeg : await this.capture(tab);
         const shot = await toShot(jpeg, vp);
         const marked = drawMarks(shot, els);
@@ -1209,6 +1329,20 @@ export class Agent implements MacroHost {
     if (!d.complete) {
       // a read that keeps finding its answer missing ends the run instead of re-queuing itself forever
       if (++this.incompleteChecks >= MAX_INCOMPLETE_CHECKS) {
+        // a collection that gathered its records goes on with them, the check's objection kept for the final answer:
+        // it kept asking for what the list doesn't show (each listing's hot tub, a town's borough), which another pass
+        // over the same list can't give, and the run ended before writing what it had found
+        const gathered = requeue.kind === "collect" ? requeue.save_as || `collection${this.index + 1}` : "";
+        if (gathered && this.notes[gathered]) {
+          this.incompleteChecks = 0;
+          this.notes[`${gathered}_unverified`] = `Not confirmed after ${MAX_INCOMPLETE_CHECKS} checks: ${d.evidence}`;
+          this.log("note", {
+            name: `${gathered}_unverified`,
+            text: this.notes[`${gathered}_unverified`],
+            page: info.url,
+          });
+          return {};
+        }
         return {
           fail: `Could not find what step ${this.index + 1} needs after ${MAX_INCOMPLETE_CHECKS} checks: ${d.evidence}`,
           terminal: true,
@@ -1216,7 +1350,10 @@ export class Agent implements MacroHost {
       }
       if (this.repeatedObjection(requeue, d.evidence))
         return { replan: this.recoverySteps(requeue, d.evidence), why: d.evidence };
-      const next = need(d.next_steps, "The read's next steps");
+      // a check repairs its own target only: a step opening what a later step opens is that step brought forward
+      // without what it types (the Tahoe rerun's repairs opened sheets.new ahead of the step that writes the table)
+      const later = new Set(this.plan.steps.slice(this.index + 1).map((s) => s.open_url));
+      const next = need(d.next_steps, "The read's next steps").filter((s) => !s.open_url || !later.has(s.open_url));
       if (!next.length) return { replan: this.recoverySteps(requeue, d.evidence), why: d.evidence };
       // A navigation correction must not silently replace the answer-producing step.
       const continuation = [...next];
@@ -1323,6 +1460,18 @@ export class Agent implements MacroHost {
       const h = await this.rescue(...args);
       if (h.learned && !added.some((t) => t.text === h.learned))
         added.push({ name: `typed${added.length + 1}`, text: h.learned, origin: h.origin });
+      // with a plan, the helper's "step done" ends the step as Drex's own does: after a move that can't be undone
+      // (send, pay, delete...) only once the LLM's check of the step's result agrees
+      if (h.done && this.planning && committed) {
+        const verified = await this.verifyStep(step, args[2]);
+        if (verified.replan || verified.fail)
+          return { replan: verified.replan, why: verified.why, fail: verified.fail, terminal: verified.terminal };
+        if (verified.rejected) {
+          this.notes[`incomplete${this.index + 1}`] = verified.rejected;
+          history.push({ what: `completion rejected: ${verified.rejected}`, changed: false });
+          return {};
+        }
+      }
       return h;
     };
     for (let n = 0; ; n++) {
@@ -1757,6 +1906,7 @@ export class Agent implements MacroHost {
       history.push({ what: "non-action completion/help choice was not dispatched", changed: false });
       return { blocked: "not a move on the page" };
     }
+    this.landing = null; // from this move on, where the tab goes is the move's doing, not a planned URL's redirect
     // the searchEnter cost switch: typing into a site's search box submits it in the same move (no second decision
     // for Enter)
     const searchEnter =
@@ -2105,14 +2255,14 @@ export class Agent implements MacroHost {
       case "type":
       case "type_pick":
         await tab.click(...centre(need(act.el.box, "The field's box")));
-        await this.typeInto(tab, act.el, text);
+        if (!(await this.typeInto(tab, act.el, text))) return { dispatched: false, reason: ONE_LINE_TABLE };
         if (enter) {
           await sleep(150);
           await tab.key("Enter");
         }
         break;
       case "type_cursor":
-        await tab.type(need(text, "The text to type"));
+        if (!(await tab.type(need(text, "The text to type")))) return { dispatched: false, reason: ONE_LINE_TABLE };
         break;
       case "select":
         await tab.selectOption(act.el.node, act.index);
@@ -2149,13 +2299,15 @@ export class Agent implements MacroHost {
 
   /** After a click on the field: a single-line field is emptied and gets the text; a multi-line editor (a document,
    * an email body, a text area) gets the text added at its end, so what it already holds is never wiped. */
-  async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<void> {
+  /** False when nothing was typed (a table at a one-line box: Tab.type). */
+  async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<boolean> {
     await sleep(150);
     if (el.multi) await tab.caretToEnd();
     else await tab.clearField();
-    await tab.type(need(text, "The text to type"));
+    if (!(await tab.type(need(text, "The text to type")))) return false;
     // an autocomplete box: type, wait for the suggestions, then the next move picks one
     if (el.role === "combobox") await tab.waitForSuggestions().catch(() => false);
+    return true;
   }
 
   /** A collect step with its model reads capped: at the cap it ends with what it read (kept in its notes and the
@@ -2292,7 +2444,10 @@ export class Agent implements MacroHost {
     if (d.decision === "click_point")
       return { act: { kind: "point", x: Number(d.x) / scale(), y: Number(d.y) / scale() }, text: d.text, why: d.why };
     const act = acts[String(d.option)];
-    if (act?.kind === "step_done" && !this.planning) return { done: d.why || "the task is finished" };
+    // "step done": with no plan the task is finished; with a plan this step is (help() checks it after a risky move).
+    // With a plan it used to be dropped, and at the move limit that failed a step the helper had just seen was done.
+    if (act?.kind === "step_done")
+      return { done: d.why || (this.planning ? "this step's goal is on screen" : "the task is finished") };
     if (!act || META_KINDS.includes(act.kind)) return {};
     let text = act.text?.text;
     let learned = "";
@@ -2312,7 +2467,9 @@ export class Agent implements MacroHost {
 
   /** The LLM checked the screen and the user's task is finished (no plan): the run's one step ends. */
   finished(why: string): Outcome {
-    this.log("tab", { what: `The LLM checked the screen: the task is finished. ${why}` });
+    this.log("tab", {
+      what: `The LLM checked the screen: ${this.planning ? "this step is done" : "the task is finished"}. ${why}`,
+    });
     this.tick();
     return {};
   }
