@@ -36,6 +36,7 @@ test("defaults when storage is empty and there is no keys file", () =>
     assert.deepEqual(await loadSettings(), {
       background: true,
       approvals: true,
+      unattended: false,
       notify: true,
       cursor: true,
       planning: true,

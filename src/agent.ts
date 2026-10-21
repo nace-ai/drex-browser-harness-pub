@@ -165,6 +165,7 @@ interface AgentOptions {
   background?: boolean;
   plan?: PlanLike | null;
   approvals?: boolean;
+  unattended?: boolean;
   cursor?: boolean;
   planning?: boolean;
   report?: { expect?: string } | null;
@@ -242,6 +243,7 @@ export class Agent implements MacroHost {
   declare planning: boolean;
   declare cursor: boolean;
   declare approvals: boolean;
+  declare unattended: boolean;
   declare fixedPlan: PlanLike | null;
   declare drex: Drex;
   declare llm: LLM;
@@ -307,6 +309,7 @@ export class Agent implements MacroHost {
     background = true,
     plan = null,
     approvals = true,
+    unattended = false,
     cursor = true,
     planning = true,
     report = null,
@@ -335,6 +338,8 @@ export class Agent implements MacroHost {
     this.planning = planning; // false: no plan and no replans from the LLM; Drex works on the task as written
     this.cursor = cursor; // the visible cursor and click ring in the agent's tab, and the target marker in the live view
     this.approvals = approvals; // false: risky clicks and bulk actions go ahead without asking (hand-overs still wait)
+    // true: a benchmark runner drives the run and nobody answers a hand-over, so the run answers instead of asking
+    this.unattended = unattended;
     this.fixedPlan = plan; // a plan given in advance (e2e tests replay a real run's plan); no planning call then
     this.drex = drex;
     this.llm = llm;
@@ -633,9 +638,10 @@ export class Agent implements MacroHost {
       // an answer in prose when the task asked for JSON is no answer to it (WebArena 325's final read wrote "Final
       // navigation result: ... verified."): it is written again in the format, from the same evidence; a file's name
       // ("package.json") asks for no format
-      const answeredInFormat = !!written && (!/(?<!\.)\bJSON\b/i.test(this.task) || structured(written));
-      // a hand-over isn't the run's end: its answer says what the person is needed for
-      if (!answeredInFormat && !this.stopped && status !== "stopped" && status !== "needs_user")
+      const answeredInFormat = !!written && (!/(?<!\.)\bJSON\b/i.test(this.task) || L.inFormat(written, this.task));
+      // a hand-over isn't the run's end: its answer says what the person is needed for. An unattended run has no one to
+      // hand over to: its attempt still ends with an answer in the task's format, whose reason is the hand-over message
+      if (!answeredInFormat && !this.stopped && status !== "stopped" && (status !== "needs_user" || this.unattended))
         lastAnswer = await this.untilStopped(this.terminalAnswer(status, message, written)).catch((e: unknown) => {
           this.log("final_answer", { error: (e as Error).message });
           // Stop while the answer was being written stops the run: its status says so, not the limit it ended on
@@ -758,15 +764,15 @@ export class Agent implements MacroHost {
     this.log("final_answer", { supported: r.json.supported, evidence: r.json.evidence, answer: text, page: page?.url });
     // answerGuard: a task that asks for JSON gets JSON: the object inside a sentence is taken as it is; prose is
     // written again once, in the format
-    if (accOn("answerGuard") && text && /(?<!\.)\bJSON\b/i.test(this.task) && !structured(text)) {
+    if (accOn("answerGuard") && text && /(?<!\.)\bJSON\b/i.test(this.task) && !L.inFormat(text, this.task)) {
       const inner = L.jsonObject(text);
-      if (inner) text = inner;
+      if (inner && L.inFormat(inner, this.task)) text = inner;
       else {
         const again = await ask(
-          `Your answer was not in the format the task asks for (the JSON object alone, nothing around it); write the same answer in that format: ${text.slice(0, 1500)}`,
+          `Your answer was not in the format the task asks for (${L.requiredFields(this.task).length ? `one JSON object with exactly the fields ${L.requiredFields(this.task).join(", ")}, not a list` : "the JSON object alone, nothing around it"}); write the same answer in that format: ${text.slice(0, 1500)}`,
         ).catch(() => null);
         const retried = (again?.json.answer ?? "").trim();
-        const fixed = structured(retried) ? retried : L.jsonObject(retried);
+        const fixed = L.inFormat(retried, this.task) ? retried : L.jsonObject(retried);
         if (fixed) text = fixed;
         if (again) this.log("final_answer", { supported: again.json.supported, answer: retried, retry: "format" });
       }
@@ -2024,6 +2030,15 @@ export class Agent implements MacroHost {
           : "click a point on the screen";
       let why = "There's no button name to check, so it may send, pay or delete something.";
       let ask = true;
+      const g = act.kind === "gesture" ? act.gesture : undefined;
+      // a drag that starts on a slider's handle sets a value, as typing in a field does: nothing is sent or deleted
+      if (g?.kind === "drag" && g.x !== undefined && g.y !== undefined && this.approvals && !this.gesturesAllowed) {
+        const start = await readPoint(tab, g.x, g.y);
+        if (start?.role === "slider") {
+          ask = false;
+          this.log("gate", { what: label, decision: "no approval needed", role: "slider" });
+        }
+      }
       if (act.kind === "point" && this.approvals && !this.batchApproved && !this.gesturesAllowed) {
         const target = await readPoint(tab, act.x, act.y);
         const risk = L.pointRisk(target);
@@ -2297,12 +2312,14 @@ export class Agent implements MacroHost {
     return undefined;
   }
 
-  /** After a click on the field: a single-line field is emptied and gets the text; a multi-line editor (a document,
-   * an email body, a text area) gets the text added at its end, so what it already holds is never wiped. */
+  /** After a click on the field: a single-line field or a form text area is emptied and gets the text; a document
+   * editor (contenteditable: a document, an email body) gets the text added at its end, so what it holds is never
+   * wiped. A text area holds a form value (a bio, a message), which typed text replaces: appended, it doubled the old
+   * value ("Freelance Web DeveloperFreelance...", WebArena reddit 402). */
   /** False when nothing was typed (a table at a one-line box: Tab.type). */
   async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<boolean> {
     await sleep(150);
-    if (el.multi) await tab.caretToEnd();
+    if (el.multi && !el.textarea) await tab.caretToEnd();
     else await tab.clearField();
     if (!(await tab.type(need(text, "The text to type")))) return false;
     // an autocomplete box: type, wait for the suggestions, then the next move picks one
@@ -2417,6 +2434,10 @@ export class Agent implements MacroHost {
     // a hand-over waits for you: a CAPTCHA, a login, a payment detail or a choice only you can make (with no plan,
     // any hand-over). One the LLM can't name a reason for counts as giving up: with a plan, the run looks for another
     // way (within its MAX_RECOVERIES), without one it ends.
+    // Unattended, nobody makes a choice: it counts as a failed step, so the run looks for another way. A CAPTCHA, a login
+    // or a payment detail still ends the run (askUser hands over, and the run answers).
+    if (this.unattended && d.decision === "ask_user" && (d.user_need === "choice" || d.user_need === "none"))
+      return { fail: d.why || "The LLM could not choose for the user." };
     if (d.decision === "ask_user" && (d.user_need !== "none" || !this.planning))
       return { ask: d.why || "Drex needs your help on this screen." };
     if (d.decision === "give_up" || d.decision === "ask_user")
@@ -2747,6 +2768,8 @@ export class Agent implements MacroHost {
     // the person is at the coding agent, not at this panel: end the run and hand the question back
     if (this.wantReport)
       throw new Handover(kind === "approve" ? `Needs approval before this action: ${message}` : message);
+    // unattended: no panel is open to answer; approvals still wait because the runner answers those itself
+    if (this.unattended && kind === "user") throw new Handover(message);
     const t0 = performance.now();
     this.check();
     let ok: UserAnswer;

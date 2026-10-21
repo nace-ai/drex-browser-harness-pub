@@ -15,6 +15,7 @@ const KEYS: (keyof Settings)[] = [
   "model",
   "background",
   "approvals",
+  "unattended",
   "notify",
   "cursor",
   "planning",
@@ -41,6 +42,7 @@ export async function loadSettings(): Promise<Settings> {
   return {
     background: true,
     approvals: true,
+    unattended: false,
     notify: true,
     cursor: true,
     planning: true,
