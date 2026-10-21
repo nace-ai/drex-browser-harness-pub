@@ -64,6 +64,22 @@ test("select verification accepts requested label moved to a new index without c
   assert.equal(result.verified, true);
   assert.equal(JSON.parse(a.notes.fields)[0].observed, "Price");
 });
+test("an assignment with no label is the schema's filler for an unused slot, not a field to fill", async () => {
+  const a = fixture(0);
+  const real = { label: "E1", desired_value: "Price", source_kind: "instruction", source_evidence: "Sort by price" };
+  const filler = { label: "", desired_value: "", source_kind: "", source_evidence: "" };
+  let acts = 0;
+  const act = a.act;
+  a.act = async (...args) => {
+    acts++;
+    return act(...args);
+  };
+  a.llm.fill = async () => ({ json: { fields: [filler, real, filler], unresolved: [] } });
+  const result = await fill.call(a, { kind: "fill", goal: a.task, save_as: "fields" });
+  assert.equal(result.verified, true);
+  assert.equal(acts, 1);
+  assert.equal(JSON.parse(a.notes.fields).length, 1);
+});
 test("returning from blocked action is an attempt, never proof of dispatch", async () => {
   const a = fixture(1, false);
   await fill.call(a, { kind: "fill", goal: a.task, save_as: "fields" });

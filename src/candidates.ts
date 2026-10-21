@@ -178,6 +178,28 @@ export function publicMetadata(this: Probe): PublicMetadata {
   const custom = this.matches(".ui-slider") && !!this.querySelector(".ui-slider-handle");
   let observed = null;
   if (custom) {
+    const handle = this.querySelector(".ui-slider-handle");
+    const own = handle?.getAttribute("aria-valuenow") ?? this.getAttribute("aria-valuenow");
+    const named = this.getAttribute("aria-controls") || this.id;
+    const output = named
+      ? (document.getElementById(this.getAttribute("aria-controls") ?? "") ??
+        document.querySelector(`output[for~="${CSS.escape(named)}"]`))
+      : null;
+    const numeric = (e: Element | null | undefined) => {
+      const m = /^(?:(?:value|current)\s*[:=]?\s*)?([+-]?\d+(?:\.\d+)?)$/i.exec(
+        flat((e as Candidate | null)?.innerText),
+      );
+      return m ? Number(m[1]) : null;
+    };
+    // a slider whose value shows in its own label: the handle's aria-valuenow, an element it names, or the label right
+    // beside it (jQuery UI sliders in a row, each with its value span: any numeric sibling was ambiguous among three)
+    const near =
+      own !== null && own !== "" && Number.isFinite(Number(own))
+        ? Number(own)
+        : (numeric(output) ?? numeric(this.nextElementSibling) ?? numeric(this.previousElementSibling));
+    if (near !== null) observed = near;
+  }
+  if (custom && observed === null) {
     const values = [];
     for (const e of this.parentElement?.children ?? []) {
       if (e === this || e.contains(this)) continue;
@@ -332,6 +354,10 @@ export function publicMetadata(this: Probe): PublicMetadata {
     role,
     paginationURL,
     paginationLabel,
+    // a phone, mail or text-message link hands the browser to another app, and the tab stopped taking clicks after one
+    ...(this.matches("a[href]") && /^\s*(tel|mailto|sms|callto):/i.test(this.getAttribute("href") ?? "")
+      ? { appLink: true }
+      : {}),
     ...(checkable ? { checked, indeterminate } : {}),
     disabled:
       !!this.disabled || this.getAttribute("aria-disabled") === "true" || this.classList.contains("ui-state-disabled"),

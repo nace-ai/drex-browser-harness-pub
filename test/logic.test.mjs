@@ -369,14 +369,20 @@ test("guardSteps blanks untrusted open_url and keeps everything else", () => {
   assert.equal(steps[1].open_url, "https://evil.com/y");
 });
 
-test("multi-line editors are typed into at the end, single-line fields are replaced", () => {
+test("document editors are typed into at the end, single-line fields and form text areas are replaced", () => {
   const texts = [{ name: "body", text: "hello" }];
   const { opts } = L.buildOptions({
-    els: [el("E1", "textbox 'Doc'", { field: true, multi: true }), el("E2", "textbox 'Title'", { field: true })],
+    els: [
+      el("E1", "textbox 'Doc'", { field: true, multi: true }),
+      el("E2", "textbox 'Title'", { field: true }),
+      el("E3", "textbox 'Bio'", { field: true, multi: true, textarea: true }),
+    ],
     texts,
   });
   assert.match(opts["type body into E1"], /at the end of textbox 'Doc'.*adds to what it holds/);
   assert.match(opts["type body into E2"], /into textbox 'Title'.*replaces what it holds/);
+  // typeInto empties a text area first: the move must not promise to keep what it holds
+  assert.match(opts["type body into E3"], /into textbox 'Bio'.*replaces what it holds/);
 });
 
 test("stateText: rules, site notes and move count; no repeat warning for repeats that changed the screen", () => {

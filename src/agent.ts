@@ -212,6 +212,10 @@ function structured(text: string): boolean {
   }
 }
 
+/** A JSON array of several items: an answer's list, which is never cut down to its first item (answerGuard). */
+const listOfMany = (text: string) =>
+  structured(text) && text.startsWith("[") && (JSON.parse(text) as unknown[]).length > 1;
+
 class Stopped extends Error {}
 class Handover extends Error {} // a coding agent's run needs the person: it ends and says why instead of waiting
 /** A collect step used its model reads (MAX_COLLECT_CALLS): it ends with what it read. */
@@ -765,15 +769,30 @@ export class Agent implements MacroHost {
     // answerGuard: a task that asks for JSON gets JSON: the object inside a sentence is taken as it is; prose is
     // written again once, in the format
     if (accOn("answerGuard") && text && /(?<!\.)\bJSON\b/i.test(this.task) && !L.inFormat(text, this.task)) {
-      const inner = L.jsonObject(text);
+      // a list of several items is never cut down to its first one; a list of one (`[{...}]`) is the object it wraps
+      const inner = listOfMany(text) ? "" : L.jsonObject(text);
       if (inner && L.inFormat(inner, this.task)) text = inner;
       else {
+        const fields = L.requiredFields(this.task);
+        const shape = fields.length
+          ? `one JSON object with exactly the fields ${fields.join(", ")}, not a list`
+          : "the JSON object alone, nothing around it";
         const again = await ask(
-          `Your answer was not in the format the task asks for (${L.requiredFields(this.task).length ? `one JSON object with exactly the fields ${L.requiredFields(this.task).join(", ")}, not a list` : "the JSON object alone, nothing around it"}); write the same answer in that format: ${text.slice(0, 1500)}`,
+          `Your answer was not in the format the task asks for (${shape}); write the same answer in that format: ${text.slice(0, 1500)}`,
         ).catch(() => null);
         const retried = (again?.json.answer ?? "").trim();
-        const fixed = L.inFormat(retried, this.task) ? retried : L.jsonObject(retried);
+        // a retry that wrote the list again keeps the whole list; one that wrapped the right object in prose or another
+        // object gives that object only when it is the task's ("{"order_count":0}" is the wrong shape to the grader)
+        const inner2 = L.jsonObject(retried);
+        const fixed =
+          L.inFormat(retried, this.task) || listOfMany(retried)
+            ? retried
+            : inner2 && L.inFormat(inner2, this.task)
+              ? inner2
+              : null;
+        // a retry that failed keeps the object found in the prose, as before the fields were checked
         if (fixed) text = fixed;
+        else if (inner) text = inner;
         if (again) this.log("final_answer", { supported: again.json.supported, answer: retried, retry: "format" });
       }
     }
@@ -2031,10 +2050,17 @@ export class Agent implements MacroHost {
       let why = "There's no button name to check, so it may send, pay or delete something.";
       let ask = true;
       const g = act.kind === "gesture" ? act.gesture : undefined;
-      // a drag that starts on a slider's handle sets a value, as typing in a field does: nothing is sent or deleted
-      if (g?.kind === "drag" && g.x !== undefined && g.y !== undefined && this.approvals && !this.gesturesAllowed) {
+      // a drag that starts on a slider's handle sets a value, as typing in a field does (L.sliderValueDrag)
+      if (
+        g?.kind === "drag" &&
+        g.x !== undefined &&
+        g.y !== undefined &&
+        this.approvals &&
+        !this.batchApproved &&
+        !this.gesturesAllowed
+      ) {
         const start = await readPoint(tab, g.x, g.y);
-        if (start?.role === "slider") {
+        if (L.sliderValueDrag(start)) {
           ask = false;
           this.log("gate", { what: label, decision: "no approval needed", role: "slider" });
         }
@@ -2319,6 +2345,8 @@ export class Agent implements MacroHost {
   /** False when nothing was typed (a table at a one-line box: Tab.type). */
   async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<boolean> {
     await sleep(150);
+    // a date or time input takes its value whole (typed key by key, a time went into one segment only)
+    if (el.node && text && (await tab.setTemporal(el.node, text))) return true;
     if (el.multi && !el.textarea) await tab.caretToEnd();
     else await tab.clearField();
     if (!(await tab.type(need(text, "The text to type")))) return false;
