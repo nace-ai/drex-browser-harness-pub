@@ -128,7 +128,10 @@ const BOX_FN = `function () {
   const noText = ["button", "submit", "checkbox", "radio", "reset", "image", "file", "range", "color"];
   const multi = this.isContentEditable || tag === "TEXTAREA";
   const editable = multi || (tag === "INPUT" && !noText.includes(this.type));
-  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, tag === "TEXTAREA"];
+  // a form text area, which typing replaces; a code editor's hidden input box (Monaco: GitLab's file editor, Ace,
+  // CodeMirror 5) is a <textarea> too, but select-all there selects the whole file, so it is added to like a document
+  const form = tag === "TEXTAREA" && !this.closest(".monaco-editor,.ace_editor,.CodeMirror") && r.width > 4 && r.height > 4;
+  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, form];
 }`;
 const SELECT_FN = "function () { return [Array.from(this.options).map(o => o.text.trim()), this.selectedIndex]; }";
 
@@ -743,7 +746,9 @@ export class Tab {
       const role = LABEL_ROLE[c.role] || (c.role === "combobox" && !editable ? "dropdown" : c.role);
       const value = String(c.value || "");
       const popup = c.props.hasPopup;
-      const submenu = role === "menuitem" && !!popup && popup !== "false" && c.props.expanded !== true;
+      // a menu, not a dialog, listbox or grid a "Delete..." item may open (the approval gate lets a submenu through)
+      const submenu =
+        role === "menuitem" && (popup === "menu" || popup === "true" || popup === true) && c.props.expanded !== true;
       const field = editable && !isSelect;
       const state = [
         c.props.disabled ? " (disabled)" : "",

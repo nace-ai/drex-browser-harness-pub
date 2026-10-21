@@ -1221,6 +1221,44 @@ test("a point click goes ahead without approval on a harmless target, and asks o
   assert.equal(out2.blocked, "stale target");
 });
 
+test("a drag that starts on a slider's handle sets a value without approval; a slide-to-act widget still asks", async () => {
+  const slider = (over = {}) => ({
+    names: ["Price range"],
+    role: "slider",
+    marks: [],
+    submits: false,
+    frame: false,
+    payment: false,
+    key: "slider|Price range",
+    ...over,
+  });
+  const drag = { kind: "gesture", gesture: { kind: "drag", x: 10, y: 10, endX: 60, endY: 10 } };
+  const run = async (under) => {
+    const a = agent({});
+    let asked = 0;
+    a.askApproval = async () => (asked++, "once");
+    a.perform = async () => {};
+    a.capture = async () => null;
+    await a.act(page({ pointTarget: async () => under() }), drag, "", scr, [], "llm", 1);
+    return asked;
+  };
+  assert.equal(await run(() => slider()), 0);
+  // the drag is the act, a CAPTCHA, or the slider sits where a click would ask: approval first
+  assert.equal(await run(() => slider({ names: ["Slide to pay"] })), 1);
+  assert.equal(await run(() => slider({ names: ["Slide to confirm"] })), 1);
+  assert.equal(await run(() => slider({ names: ["Slide to verify you are human"] })), 1);
+  assert.equal(await run(() => slider({ payment: true })), 1);
+  assert.equal(await run(() => slider({ frame: true })), 1);
+  // not a slider, or the start can't be read: approval first
+  assert.equal(await run(() => slider({ role: "button", names: ["Upload"] })), 1);
+  assert.equal(
+    await run(() => {
+      throw new Error("detached");
+    }),
+    1,
+  );
+});
+
 test("the end-of-run pop-up close is read with the mouse there and clicked only when the gate would not ask", async () => {
   const run = async (closerName, under) => {
     const a = agent({});

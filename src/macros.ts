@@ -1406,7 +1406,8 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
   const assigned = new Set<string | undefined>();
   // an assignment with no label is the schema's filler for an unused slot ("Fill unused fields with ''"), not a field:
   // it was failing whole fill steps as "Unknown or duplicate desired field: " (book-flight, enter-time)
-  for (const assignment of r.json.fields.filter((f) => typeof f.label === "string" && f.label.trim() !== "")) {
+  const assignments = r.json.fields.filter((f) => typeof f.label === "string" && f.label.trim() !== "");
+  for (const assignment of assignments) {
     if (!fields.some((e) => e.label === assignment.label) || assigned.has(assignment.label))
       return { fail: `Unknown or duplicate desired field: ${String(assignment.label)}` };
     if (
@@ -1442,7 +1443,7 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
     ],
     why,
   });
-  for (const assignment of r.json.fields) {
+  for (const assignment of assignments) {
     const original = fields.find((e) => e.label === assignment.label);
     if (!original) return { fail: `Unknown form field: ${String(assignment.label)}` };
     const current = await this.look(tab);
