@@ -781,8 +781,15 @@ export class Agent implements MacroHost {
           `Your answer was not in the format the task asks for (${shape}); write the same answer in that format: ${text.slice(0, 1500)}`,
         ).catch(() => null);
         const retried = (again?.json.answer ?? "").trim();
-        // a retry that wrote the list again keeps the whole list, as before the fields were checked
-        const fixed = L.inFormat(retried, this.task) || listOfMany(retried) ? retried : L.jsonObject(retried);
+        // a retry that wrote the list again keeps the whole list; one that wrapped the right object in prose or another
+        // object gives that object only when it is the task's ("{"order_count":0}" is the wrong shape to the grader)
+        const inner2 = L.jsonObject(retried);
+        const fixed =
+          L.inFormat(retried, this.task) || listOfMany(retried)
+            ? retried
+            : inner2 && L.inFormat(inner2, this.task)
+              ? inner2
+              : null;
         // a retry that failed keeps the object found in the prose, as before the fields were checked
         if (fixed) text = fixed;
         else if (inner) text = inner;
@@ -2338,6 +2345,8 @@ export class Agent implements MacroHost {
   /** False when nothing was typed (a table at a one-line box: Tab.type). */
   async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<boolean> {
     await sleep(150);
+    // a date or time input takes its value whole (typed key by key, a time went into one segment only)
+    if (el.node && text && (await tab.setTemporal(el.node, text))) return true;
     if (el.multi && !el.textarea) await tab.caretToEnd();
     else await tab.clearField();
     if (!(await tab.type(need(text, "The text to type")))) return false;

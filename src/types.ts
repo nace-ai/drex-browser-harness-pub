@@ -427,6 +427,8 @@ export type HistoryEntry = { marker: true } | MoveRecord;
 /** What candidates.publicMetadata reports for one element. checked and indeterminate come only for checkable controls. */
 export interface PublicMetadata {
   name: string;
+  /** a tel:, mailto: or sms: link: it opens another app, never a page, so it is not offered as a move */
+  appLink?: boolean;
   /** The painted background of an unlabeled control that shows no text: "light red, hsl(0 74% 83%)". */
   color?: string;
   slider: Slider | null;

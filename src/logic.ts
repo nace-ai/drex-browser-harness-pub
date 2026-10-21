@@ -688,6 +688,8 @@ const NOT_THE_ACT = [
   /\b(remove|clear)\s+(the\s+)?(guests|adults|children|kids|infants|rooms|travell?ers|passengers|locations?|keywords?|dates?)\s*:/i,
   // mail, not publishing: "Claim by post", "Post office", "postcode"
   /\bby\s+post\b|\bpost\s+(office|code)s?\b/i,
+  // a column or field named after the act sorts or shows it: "Purchase Date", "Order Total", "Payment Status"
+  /\b(purchase|order|payment|post|send|delete)\s+(date|time|id|number|no\.?|status|total|history|amount)s?\b/i,
 ];
 // Controls that choose or type a value: picking an option, ticking a box or switching a tab sends, pays and deletes
 // nothing by itself (the button that submits the choice is checked on its own). A switch is not among them: settings
