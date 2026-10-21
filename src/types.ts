@@ -34,6 +34,7 @@ export interface Settings {
   model: ModelId;
   background: boolean;
   approvals: boolean;
+  unattended: boolean;
   notify: boolean;
   cursor: boolean;
   planning: boolean;
@@ -247,6 +248,8 @@ export interface PageEl {
   where?: string;
   field?: boolean;
   multi?: boolean;
+  /** a form <textarea> (multi-line, but not a document editor): typing replaces what it holds */
+  textarea?: boolean;
   select?: boolean;
   options?: string[];
   selectedIndex?: number;
@@ -869,6 +872,7 @@ export interface RunResult {
 export interface RunOver extends Partial<Pick<Settings, KeyName | "drexKey" | "notify">> {
   planning?: boolean;
   approvals?: boolean;
+  unattended?: boolean;
   report?: { expect?: string };
   model?: string;
   runLimits?: LimitsInput;

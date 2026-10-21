@@ -2741,3 +2741,63 @@ test("a tab the agent opens on another site gets a logical index of its own; a s
     globalThis.chrome = previous;
   }
 });
+
+test("an unattended run that needs the person ends with an answer in the task's format", async () => {
+  const previous = globalThis.chrome;
+  globalThis.chrome = runChrome();
+  try {
+    let calls = 0;
+    const a = agent({
+      plan: async () => response({ summary: "", answer_from: "", steps: [step] }),
+      finalAnswerHold: () => ({ calls: 1, usd: 0.002, ms: 1000 }),
+      finalAnswer: async () => {
+        calls++;
+        return response({ evidence: "", supported: false, answer: '{"status":"NOT_FOUND"}' });
+      },
+    });
+    a.unattended = true; // a benchmark runner: nobody is at the panel, so the run hands over and still answers
+    a.prepare = async () => {};
+    a.browse = async () => {
+      await a.waitForUser("user", "Solve the CAPTCHA");
+      return {};
+    };
+    const result = await a.run("Find the price. Answer as one JSON object");
+    assert.equal(result.status, "needs_user");
+    assert.equal(calls, 1);
+    assert.equal(result.answer, '{"status":"NOT_FOUND"}');
+  } finally {
+    globalThis.chrome = previous;
+  }
+});
+test("an unattended approval still waits for the runner's answer", async () => {
+  const a = agent(noLLM());
+  a.unattended = true;
+  const asked = a.waitForUser("approve", "Place the order?");
+  assert.ok(a.pendingAsk);
+  a.answer("once");
+  assert.equal(await asked, "once");
+});
+test("attended runs still wait for the person", async () => {
+  const a = agent(noLLM());
+  a.unattended = false;
+  a.wantReport = null;
+  const asked = a.waitForUser("user", "Solve the CAPTCHA");
+  assert.ok(a.pendingAsk);
+  a.answer(true);
+  assert.equal(await asked, true);
+});
+test("unattended: a choice the user would make becomes a failed step, not a hand-over", async () => {
+  let user_need = "choice";
+  const a = agent({
+    rescue: async () =>
+      response({ decision: "ask_user", user_need, why: "Pick one of your saved addresses", new_steps: [] }),
+  });
+  a.unattended = true;
+  let result = await a.rescue("help", "", scr, {}, {}, []);
+  assert.equal(result.ask, undefined);
+  assert.equal(result.fail, "Pick one of your saved addresses");
+  for (user_need of ["captcha", "login", "payment"]) {
+    result = await a.rescue("help", "", scr, {}, {}, []);
+    assert.equal(result.ask, "Pick one of your saved addresses");
+  }
+});

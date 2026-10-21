@@ -111,6 +111,7 @@ async function runTask(
     windowId: win,
     background: isOn(s.background),
     approvals: isOn(s.approvals),
+    unattended: s.unattended, // not isOn: that reads an unset key as on
     cursor: isOn(s.cursor),
     planning: isOn(s.planning),
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- a stored falsy plan means no plan

@@ -678,6 +678,10 @@ const NOT_THE_ACT = [
   /\b(remove|clear|reset)\s+(all\s+|the\s+|my\s+)?(filters?|selections?|refinements?|sort(ing)?)\b/i,
   /\b(date|time)\s+posted\b|\bpost(ed)?\s+(date|time)\b|\bposted\s+on\b/i,
   /\bcheck out (our|more|new|what)\b/i,
+  // a search's own counts and chips ("Remove guests", "Remove location: Seattle"): the search changes, nothing is sent
+  /\b(remove|clear)\s+(a\s+|the\s+|one\s+)?(guests?|adults?|child(ren)?|kids?|infants?|rooms?|travell?ers?|passengers?|locations?|keywords?|tags?|dates?)\b/i,
+  // mail, not publishing: "Claim by post", "Post office", "postcode"
+  /\bby\s+post\b|\bpost\s+(office|code)s?\b/i,
 ];
 // Controls that choose or type a value: picking an option, ticking a box or switching a tab sends, pays and deletes
 // nothing by itself (the button that submits the choice is checked on its own). A switch is not among them: settings
@@ -711,6 +715,9 @@ export function riskyName(name: string | null | undefined): boolean {
 export function isRisky(act: MoveOption): boolean {
   if (act.kind !== "click" && act.kind !== "scroll_click") return false;
   if (act.el.role && CHOOSING_ROLES.has(act.el.role)) return false;
+  // a menu item that opens a submenu ("Send" in a postal site's navigation) only shows more items; the item the
+  // submenu then offers is checked on its own
+  if (act.el.submenu) return false;
   return riskyName(act.el.name ?? act.el.text);
 }
 
@@ -1064,4 +1071,32 @@ export function effectOf(before: PageNotes | null | undefined, after: PageNotes 
  * one step can't drop the rest of the task. */
 export function applyReplan(steps: Step[], index: number, newSteps: Step[]): Step[] {
   return [...steps.slice(0, index), ...newSteps, ...steps.slice(index + 1)];
+}
+
+/**
+ * The top-level fields a task's answer object must have, when the task spells the object out ("Return exactly one JSON
+ * object with exactly these four fields: {"task_type": ..., "status": ...}"); none when it only says "JSON".
+ */
+export function requiredFields(task: string): string[] {
+  const shape = /JSON object[^{]{0,200}\{([^{}]{0,800})\}/i.exec(task)?.[1];
+  const keys = shape ? [...shape.matchAll(/"([A-Za-z_][\w-]*)"\s*:/g)].flatMap((m) => (m[1] ? [m[1]] : [])) : [];
+  return keys.length >= 2 ? [...new Set(keys)] : [];
+}
+
+/**
+ * An answer in the task's format: JSON, and when the task spells out its object, that one object with all its fields. A
+ * bare list of the values, or the object inside a list, is the right data in the wrong shape: the grader reads neither
+ * (WebArena reddit 27-31 sent `[{"username": ...}]` and `[{"task_type": ...}]`).
+ */
+export function inFormat(text: string, task: string): boolean {
+  if (!/^[[{]/.test(text)) return false;
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  const fields = requiredFields(task);
+  if (!fields.length) return true;
+  return !!value && typeof value === "object" && !Array.isArray(value) && fields.every((f) => f in value);
 }

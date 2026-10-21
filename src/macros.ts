@@ -1404,7 +1404,9 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
   }
   if (!Array.isArray(r.json.fields)) return { fail: "Desired-state assignments missing" };
   const assigned = new Set<string | undefined>();
-  for (const assignment of r.json.fields) {
+  // an assignment with no label is the schema's filler for an unused slot ("Fill unused fields with ''"), not a field:
+  // it was failing whole fill steps as "Unknown or duplicate desired field: " (book-flight, enter-time)
+  for (const assignment of r.json.fields.filter((f) => typeof f.label === "string" && f.label.trim() !== "")) {
     if (!fields.some((e) => e.label === assignment.label) || assigned.has(assignment.label))
       return { fail: `Unknown or duplicate desired field: ${String(assignment.label)}` };
     if (

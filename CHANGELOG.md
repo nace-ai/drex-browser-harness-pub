@@ -4,6 +4,27 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## [0.1.2] - 2026-10-21
+
+### Fixed
+
+- **Chrome extension**: when a task spells out the JSON object its answer must be, the final answer is that one object
+  with every field; a bare list of the values, or the object inside a list, is written again in the format.
+- **Chrome extension**: typing into a form text area replaces what it holds instead of adding to it. Document editors
+  still get new text at the end.
+- **Chrome extension**: fewer approval cards on harmless clicks. A menu item that only opens a submenu, a search's own
+  counts and filter chips ("Remove guests"), "by post" and dragging a slider no longer ask; sending, paying, posting
+  and deleting still do.
+- **Chrome extension**: a form fill no longer fails on an empty placeholder entry.
+- **Chrome extension**: the agent may set a URL parameter the site's own links already use (a filter, sort, price
+  range or page size), and a page that asks for an answer gets it on the page.
+
+### Added
+
+- **Chrome extension**: an `unattended` setting for runners with nobody at the panel: a run that would hand over ends
+  with an answer in the task's format instead, and a choice it can't make counts as a failed step. `e2e/run.py
+  --unattended` sets it.
+
 ## [0.1.1] - 2026-10-20
 
 ### Fixed

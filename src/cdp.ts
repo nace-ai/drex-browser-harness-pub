@@ -128,7 +128,7 @@ const BOX_FN = `function () {
   const noText = ["button", "submit", "checkbox", "radio", "reset", "image", "file", "range", "color"];
   const multi = this.isContentEditable || tag === "TEXTAREA";
   const editable = multi || (tag === "INPUT" && !noText.includes(this.type));
-  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi];
+  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, tag === "TEXTAREA"];
 }`;
 const SELECT_FN = "function () { return [Array.from(this.options).map(o => o.text.trim()), this.selectedIndex]; }";
 
@@ -415,7 +415,7 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string) =>
 
 type Meta = Partial<PublicMetadata>;
 /** Box FN's answer: left, top, width, height, covered by a layer, group, takes typed text, is a select, multi-line. */
-type BoxInfo = [number, number, number, number, boolean, string, boolean, boolean, boolean];
+type BoxInfo = [number, number, number, number, boolean, string, boolean, boolean, boolean, boolean];
 type Found = Omit<LocatedEl, "label" | "box">;
 type OnScreen = Omit<OnScreenEl, "label">;
 type OffScreen = Omit<OffScreenEl, "label">;
@@ -736,7 +736,7 @@ export class Tab {
     cands.forEach((c, i) => {
       const box = boxes[i];
       if (!box) return;
-      const [x, y, w, h, covered, group, editable, isSelect, multi] = box;
+      const [x, y, w, h, covered, group, editable, isSelect, multi, textarea] = box;
       if (covered) return; // behind a dialog's backdrop or a banner: not clickable now
       const meta = metadata[i] ?? {};
       if (!c.name && meta.name) c.name = meta.name;
@@ -777,6 +777,7 @@ export class Tab {
         group,
         field,
         multi: field && multi,
+        ...(field && textarea ? { textarea: true } : {}),
         select: isSelect,
         documentPosition: [x + scroll[0], y + scroll[1], w, h],
         paginationURL: meta.paginationURL || "",
