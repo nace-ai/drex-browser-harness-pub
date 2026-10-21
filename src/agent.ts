@@ -772,7 +772,14 @@ export class Agent implements MacroHost {
           `Your answer was not in the format the task asks for (${L.requiredFields(this.task).length ? `one JSON object with exactly the fields ${L.requiredFields(this.task).join(", ")}, not a list` : "the JSON object alone, nothing around it"}); write the same answer in that format: ${text.slice(0, 1500)}`,
         ).catch(() => null);
         const retried = (again?.json.answer ?? "").trim();
-        const fixed = L.inFormat(retried, this.task) ? retried : L.jsonObject(retried);
+        // a retry that still isn't the task's object is not taken: an inner object ("{"order_count":0}") is the right
+        // data in the wrong shape, as wrong to the grader as the prose was
+        const inner2 = L.jsonObject(retried);
+        const fixed = L.inFormat(retried, this.task)
+          ? retried
+          : inner2 && L.inFormat(inner2, this.task)
+            ? inner2
+            : null;
         if (fixed) text = fixed;
         if (again) this.log("final_answer", { supported: again.json.supported, answer: retried, retry: "format" });
       }
@@ -2319,6 +2326,8 @@ export class Agent implements MacroHost {
   /** False when nothing was typed (a table at a one-line box: Tab.type). */
   async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<boolean> {
     await sleep(150);
+    // a date or time input takes its value whole (typed key by key, a time went into one segment only)
+    if (el.node && text && (await tab.setTemporal(el.node, text))) return true;
     if (el.multi && !el.textarea) await tab.caretToEnd();
     else await tab.clearField();
     if (!(await tab.type(need(text, "The text to type")))) return false;

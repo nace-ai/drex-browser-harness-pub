@@ -1580,6 +1580,12 @@ const LITE_FACT = 800; // a matching record's text kept in the note
 const LITE_ROW = 300; // and its row's
 const LITE_MATCHES = 8; // matches kept in the note
 const LITE_EMPTY_PAGES = 2; // an unsorted list that shows no match on this many pages is read no further
+// enumerate_all (count or list every match): the whole list is the answer, so neither early stop applies; it reads up
+// to this many pages and keeps this many matches, each shorter (an order history of 37 orders on 4 pages was answered
+// "none" after 2 pages, and a 'max of all' from the first 24 matches)
+const LITE_ENUM_PAGES = 12;
+const LITE_ENUM_MATCHES = 40;
+const LITE_ENUM_FACT = 300;
 const LITE_UNSETTLED = 3; // scanOn: rows nothing settled that an ordered scan passes before it stops at one
 const LITE_DATED_FACT = 1200; // noteResolve: a dated record's own text kept with its match (an order's items)
 
@@ -1634,7 +1640,8 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
   // out (286: a $1.33 hard disk taken as the cheapest SSD)
   const passUnsettled = () => accOn("scanOn") && ++unsettled <= LITE_UNSETTLED;
   const seenPages = new Set<string>();
-  for (let page = 0; page < LITE_PAGES; page++) {
+  const enumerate = contract.intent === "enumerate_all";
+  for (let page = 0; page < (enumerate ? LITE_ENUM_PAGES : LITE_PAGES); page++) {
     this.check();
     const tab = await this.currentTab();
     const scr = await this.look(tab);
@@ -1818,8 +1825,8 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
       complete = true;
       break;
     }
-    if (!ordered && !matches.length && pages >= LITE_EMPTY_PAGES) break;
-    if (matches.length >= LITE_MATCHES * 2) break;
+    if (!enumerate && !ordered && !matches.length && pages >= LITE_EMPTY_PAGES) break;
+    if (!enumerate && matches.length >= LITE_MATCHES * 2) break;
     // the next page: its Next control, made as a macro move
     const fresh = await this.look(tab);
     const { all, options } = await navigationOptions(tab, fresh);
@@ -1851,7 +1858,15 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
         : `the list runs by ${String(contract.objective_field)} ${String(contract.sort_direction)}; the first match is the answer`
       : "not proven sorted: compare the matches",
     ...(firstHit ? { answer: passed && !settled ? matches[0] : matches.at(-1) } : {}),
-    matches: passed ? matches.slice(-LITE_MATCHES) : firstHit ? matches.slice(-1) : matches.slice(0, LITE_MATCHES),
+    matches: passed
+      ? matches.slice(-LITE_MATCHES)
+      : firstHit
+        ? matches.slice(-1)
+        : enumerate
+          ? matches
+              .slice(0, LITE_ENUM_MATCHES)
+              .map((m) => ({ ...m, record: (m.record ?? "").slice(0, LITE_ENUM_FACT) }))
+          : matches.slice(0, LITE_MATCHES),
     rows_checked: checked,
     ruled_out: ruledOut,
     pages_read: pages,

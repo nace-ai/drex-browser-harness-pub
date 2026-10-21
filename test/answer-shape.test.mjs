@@ -39,3 +39,13 @@ test("isRisky lets a submenu, a search's count or chip, and mail 'by post' throu
   assert.ok(L.isRisky(click("Post")));
   assert.ok(L.isRisky(click("Delete account")));
 });
+
+test("isRisky lets a column or field named after an act through, and the act itself still asks", () => {
+  const click = (name) => ({ kind: "click", el: { name, text: `button '${name}'` } });
+  // a grid's sortable column headers (an orders grid stuck at the gate on "Purchase Date")
+  assert.ok(!L.isRisky(click("Purchase Date")));
+  assert.ok(!L.isRisky(click("Order Total")));
+  assert.ok(!L.isRisky(click("Payment Status")));
+  assert.ok(L.isRisky(click("Purchase")));
+  assert.ok(L.isRisky(click("Place order")));
+});

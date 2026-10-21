@@ -4,6 +4,22 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## [0.1.3] - 2026-10-21
+
+### Fixed
+
+- **Chrome extension**: read-only fields, such as a date picker's input, are clicked instead of typed into.
+- **Chrome extension**: date and time inputs take the typed value whole; typed key by key, a time landed in one segment.
+- **Chrome extension**: a custom slider's value is read from its handle, the element it names or the label beside it.
+- **Chrome extension**: a multiple select keeps earlier choices, and a form text area is described as one.
+- **Chrome extension**: phone, mail and text-message links are not offered as moves; they open another app.
+- **Chrome extension**: a column or field named after an act ("Purchase Date", "Order Total") no longer asks for
+  approval; the act itself still does.
+- **Chrome extension**: a task that needs every match in a list reads the whole list (up to 12 pages) instead of
+  stopping after two pages without a match.
+- **Chrome extension**: recorded values and confirmed changes keep the success status in the final answer when the
+  run's own check was unsure.
+
 ## [0.1.2] - 2026-10-21
 
 ### Fixed

@@ -406,9 +406,11 @@ export function buildOptions({
         });
       });
     } else if (e.field) {
-      // a single-line field is replaced; a multi-line editor (document, email body, text area) is added to at its end
-      const how = e.multi ? "at the end of" : "into";
-      const note = e.multi ? " (adds to what it holds)" : " (replaces what it holds)";
+      // a single-line field and a form text area are replaced; a document editor (a document, an email body) is added
+      // to at its end (Agent.typeInto)
+      const adds = e.multi && !e.textarea;
+      const how = adds ? "at the end of" : "into";
+      const note = adds ? " (adds to what it holds)" : " (replaces what it holds)";
       if (texts.length && texts.length <= INLINE_TEXTS) {
         for (const t of texts)
           add(`type ${t.name} into ${e.label}`, `Type ${preview(t)} ${how} ${describe(e)}${note}`, {
@@ -682,6 +684,8 @@ const NOT_THE_ACT = [
   /\b(remove|clear)\s+(a\s+|the\s+|one\s+)?(guests?|adults?|child(ren)?|kids?|infants?|rooms?|travell?ers?|passengers?|locations?|keywords?|tags?|dates?)\b/i,
   // mail, not publishing: "Claim by post", "Post office", "postcode"
   /\bby\s+post\b|\bpost\s+(office|code)s?\b/i,
+  // a column or field named after the act sorts or shows it: "Purchase Date", "Order Total", "Payment Status"
+  /\b(purchase|order|payment|post|send|delete)\s+(date|time|id|number|no\.?|status|total|history|amount)s?\b/i,
 ];
 // Controls that choose or type a value: picking an option, ticking a box or switching a tab sends, pays and deletes
 // nothing by itself (the button that submits the choice is checked on its own). A switch is not among them: settings

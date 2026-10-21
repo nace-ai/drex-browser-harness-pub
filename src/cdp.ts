@@ -127,8 +127,10 @@ const BOX_FN = `function () {
   const tag = this.tagName;
   const noText = ["button", "submit", "checkbox", "radio", "reset", "image", "file", "range", "color"];
   const multi = this.isContentEditable || tag === "TEXTAREA";
-  const editable = multi || (tag === "INPUT" && !noText.includes(this.type));
-  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, tag === "TEXTAREA"];
+  // a read-only field (a date picker's input) takes no typing: a click opens what sets it
+  const readOnly = this.readOnly === true || this.getAttribute("aria-readonly") === "true";
+  const editable = (multi || (tag === "INPUT" && !noText.includes(this.type))) && !readOnly;
+  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, tag === "TEXTAREA", readOnly];
 }`;
 const SELECT_FN = "function () { return [Array.from(this.options).map(o => o.text.trim()), this.selectedIndex]; }";
 
@@ -415,7 +417,7 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string) =>
 
 type Meta = Partial<PublicMetadata>;
 /** Box FN's answer: left, top, width, height, covered by a layer, group, takes typed text, is a select, multi-line. */
-type BoxInfo = [number, number, number, number, boolean, string, boolean, boolean, boolean, boolean];
+type BoxInfo = [number, number, number, number, boolean, string, boolean, boolean, boolean, boolean, boolean];
 type Found = Omit<LocatedEl, "label" | "box">;
 type OnScreen = Omit<OnScreenEl, "label">;
 type OffScreen = Omit<OffScreenEl, "label">;
@@ -736,9 +738,10 @@ export class Tab {
     cands.forEach((c, i) => {
       const box = boxes[i];
       if (!box) return;
-      const [x, y, w, h, covered, group, editable, isSelect, multi, textarea] = box;
+      const [x, y, w, h, covered, group, editable, isSelect, multi, textarea, readOnly] = box;
       if (covered) return; // behind a dialog's backdrop or a banner: not clickable now
       const meta = metadata[i] ?? {};
+      if (meta.appLink) return; // tel:/mailto:/sms: open another app, not a page
       if (!c.name && meta.name) c.name = meta.name;
       const role = LABEL_ROLE[c.role] || (c.role === "combobox" && !editable ? "dropdown" : c.role);
       const value = String(c.value || "");
@@ -755,6 +758,8 @@ export class Tab {
         c.props.selected ? " (selected)" : "",
         c.props.focused ? " (focused)" : "",
         submenu ? " (has a submenu)" : "",
+        field && textarea ? " (multi-line text area)" : "",
+        readOnly && !field ? " (read-only: click it to open what sets it)" : "",
         meta.color ? ` (color: ${meta.color})` : "",
         value ? ` (shows '${value.slice(0, 50)}')` : field ? " (empty)" : "",
       ].join("");
@@ -1399,6 +1404,40 @@ export class Tab {
 
   /** A slider to a value: a native range input through its public value setter plus input/change events; an ARIA
    * slider (role=slider) with real arrow keys from its aria-valuenow. */
+  /** A date or time input (or one of the segments it shows) set to the typed text through the native setter, as a
+   * person's picker sets it: typed key by key, "8:22 AM" went into the hours segment and left the field empty. True
+   * when the field now holds the value; false for any other field or a text it can't read (then it is typed). */
+  async setTemporal(node: number, text: string): Promise<boolean> {
+    const done = await this.on(
+      node,
+      `function () {
+      let el = this;
+      while (el && !(el instanceof HTMLInputElement) && el.getRootNode && el.getRootNode().host) el = el.getRootNode().host;
+      if (!(el instanceof HTMLInputElement) || !/^(time|date|datetime-local|month)$/.test(el.type)) return false;
+      const t = ${JSON.stringify(text)}.trim(), pad = (n) => String(n).padStart(2, "0");
+      let time = "", date = "";
+      const tm = /(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*([ap])\\.?m?\\.?/i.exec(t) || /(\\d{1,2}):(\\d{2})(?::(\\d{2}))?/.exec(t);
+      if (tm) {
+        let h = Number(tm[1]);
+        if (tm[4]) h = (h % 12) + (/p/i.test(tm[4]) ? 12 : 0);
+        time = pad(h) + ":" + tm[2] + (tm[3] ? ":" + tm[3] : "");
+      }
+      const iso = /(\\d{4})-(\\d{1,2})-(\\d{1,2})/.exec(t), us = /(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/.exec(t);
+      if (iso) date = iso[1] + "-" + pad(iso[2]) + "-" + pad(iso[3]);
+      else if (us) date = us[3] + "-" + pad(us[1]) + "-" + pad(us[2]);
+      const v = el.type === "time" ? time : el.type === "date" ? date : el.type === "month" ? date.slice(0, 7)
+        : date && time ? date + "T" + time : "";
+      if (!v) return false;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return el.value === v;
+    }`,
+    ).catch(() => false);
+    if (done) this.inputAt = performance.now();
+    return done === true;
+  }
+
   async setValue(node: number, value: unknown): Promise<SliderResult> {
     const requested = Number(value);
     if (!Number.isFinite(requested)) return { ok: false, requested: null, error: "Expected a finite numeric value" };
@@ -1533,7 +1572,8 @@ export class Tab {
     this.inputAt = performance.now();
     await this.on(
       node,
-      `function () { this.selectedIndex = ${index};
+      // a multiple select keeps what is already chosen: setting selectedIndex chose one and dropped the others
+      `function () { if (this.multiple && this.options[${index}]) this.options[${index}].selected = true; else this.selectedIndex = ${index};
       this.dispatchEvent(new Event("input", { bubbles: true })); this.dispatchEvent(new Event("change", { bubbles: true })); }`,
     );
   }
