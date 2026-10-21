@@ -39,7 +39,7 @@ ap.add_argument("--dark", action="store_true", help="dark color scheme (to check
 ap.add_argument("--no-cursor", action="store_true", help="turn the visible cursor off")
 ap.add_argument("--frames", type=int, default=0, help="save a panel screenshot every 0.5 s for this many seconds (OUT/frames/)")
 ap.add_argument("--no-approvals", action="store_true", help="turn the 'ask before risky actions' setting off")
-ap.add_argument("--unattended", action="store_true", help="answer instead of handing over: a hand-over ends the run with an answer (benchmark runs)")
+ap.add_argument("--unattended", action="store_true", help="answer instead of handing over: a hand-over ends the run with an answer (benchmark runs); approval cards still wait, so pair it with --approve or --no-approvals")
 ap.add_argument("--dist", default="", help="the unpacked extension to load (default: dist/ of this checkout)")
 ap.add_argument("--plan", default="", help="a plan JSON to run instead of asking the LLM (replays a real run's plan)")
 ap.add_argument("--no-plan", action="store_true", help="turn LLM planning off: Drex works on the task as written")

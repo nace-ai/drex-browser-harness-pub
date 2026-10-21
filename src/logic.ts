@@ -406,8 +406,8 @@ export function buildOptions({
         });
       });
     } else if (e.field) {
-      // a single-line field and a form text area are replaced; a document editor (a document, an email body) is added
-      // to at its end (Agent.typeInto)
+      // a single-line field or a form text area is replaced (Agent.typeInto); a document editor (a document, an email
+      // body) is added to at its end
       const adds = e.multi && !e.textarea;
       const how = adds ? "at the end of" : "into";
       const note = adds ? " (adds to what it holds)" : " (replaces what it holds)";
@@ -680,8 +680,12 @@ const NOT_THE_ACT = [
   /\b(remove|clear|reset)\s+(all\s+|the\s+|my\s+)?(filters?|selections?|refinements?|sort(ing)?)\b/i,
   /\b(date|time)\s+posted\b|\bpost(ed)?\s+(date|time)\b|\bposted\s+on\b/i,
   /\bcheck out (our|more|new|what)\b/i,
-  // a search's own counts and chips ("Remove guests", "Remove location: Seattle"): the search changes, nothing is sent
-  /\b(remove|clear)\s+(a\s+|the\s+|one\s+)?(guests?|adults?|child(ren)?|kids?|infants?|rooms?|travell?ers?|passengers?|locations?|keywords?|tags?|dates?)\b/i,
+  // a search's own counts and chips: a counter's minus ("Remove guests", "Remove adults") and a chip that names its
+  // value ("Remove location: Seattle", "Remove guests: 2"): the search changes, nothing is sent. One named record
+  // ("Remove guest" or "Remove guest: Jane" from an event, "Remove tag: bug" on an issue, "Remove room" from a booking)
+  // is a removal and still asks
+  /\b(remove|clear)\s+(guests|adults|children|kids|infants|rooms|travell?ers|passengers)$/i,
+  /\b(remove|clear)\s+(the\s+)?(guests|adults|children|kids|infants|rooms|travell?ers|passengers|locations?|keywords?|dates?)\s*:/i,
   // mail, not publishing: "Claim by post", "Post office", "postcode"
   /\bby\s+post\b|\bpost\s+(office|code)s?\b/i,
   // a column or field named after the act sorts or shows it: "Purchase Date", "Order Total", "Payment Status"
@@ -776,6 +780,15 @@ export function pointRisk(target: PointTarget | null | undefined): string {
     return "the control there is a button with no name";
   if (target.submits) return "the control there submits a form that sends data";
   return "";
+}
+
+/** A drag that starts on a slider's handle sets a value, as typing in a field does: nothing is sent or deleted. Not a
+ * slide-to-act widget ("Slide to pay", "Swipe to confirm"), whose drag is the act, nor a slider CAPTCHA ("Slide to
+ * verify"), which is never solved; nor a slider anywhere a point click would ask (a frame, a card form, a risky name). */
+const SLIDE_TO_ACT = /\b(slide|swipe|drag)\b.*\bto\b|captcha|verif|robot|human|puzzle/i;
+export function sliderValueDrag(start: PointTarget | null | undefined): boolean {
+  if (start?.role !== "slider" || pointRisk(start)) return false;
+  return !start.names.some((n) => riskyName(n) || SLIDE_TO_ACT.test(n));
 }
 
 /** Did the target of a move vanish or move while the readiness check ran? Only the target counts: other content on
@@ -1079,10 +1092,19 @@ export function applyReplan(steps: Step[], index: number, newSteps: Step[]): Ste
 
 /**
  * The top-level fields a task's answer object must have, when the task spells the object out ("Return exactly one JSON
- * object with exactly these four fields: {"task_type": ..., "status": ...}"); none when it only says "JSON".
+ * object with exactly these four fields: {"task_type": ..., "status": ...}"); none when it only says "JSON". Only an
+ * object the answer is asked to be counts: an example the task quotes ("the API returns a JSON object like {...}") or
+ * the shape of each item of a list ("return a list, each a JSON object {...}") is not the answer's own shape.
  */
 export function requiredFields(task: string): string[] {
-  const shape = /JSON object[^{]{0,200}\{([^{}]{0,800})\}/i.exec(task)?.[1];
+  const m =
+    /\b(return|answer|respond|reply|output)\b([^.{]{0,80})\bJSON object(?!s)([^{]{0,200})\{([^{}]{0,800})\}([^.{]{0,80})/i.exec(
+      task,
+    );
+  // list wording around the object ("a list, each a JSON object {...}", "a JSON object per order: {...}", "a JSON
+  // object {...} for each product")
+  const around = `${m?.[2] ?? ""} ${m?.[3] ?? ""} ${m?.[5] ?? ""}`;
+  const shape = m && !/\b(list|array|each|every|per)\b/i.test(around) ? m[4] : undefined;
   const keys = shape ? [...shape.matchAll(/"([A-Za-z_][\w-]*)"\s*:/g)].flatMap((m) => (m[1] ? [m[1]] : [])) : [];
   return keys.length >= 2 ? [...new Set(keys)] : [];
 }
@@ -1102,5 +1124,5 @@ export function inFormat(text: string, task: string): boolean {
   }
   const fields = requiredFields(task);
   if (!fields.length) return true;
-  return !!value && typeof value === "object" && !Array.isArray(value) && fields.every((f) => f in value);
+  return !!value && typeof value === "object" && !Array.isArray(value) && fields.every((f) => Object.hasOwn(value, f));
 }
