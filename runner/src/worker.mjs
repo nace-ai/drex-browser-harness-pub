@@ -5,10 +5,11 @@ import { createHmac, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import Ajv from "ajv";
 import { runTask } from "./run.mjs";
+import { HostedBudget } from "./hosted-budget.mjs";
 import { modelTransport } from "./worker-transport.mjs";
 
-export const PROTOCOL_VERSION = "1";
-const schema = JSON.parse(await fs.readFile(new URL("../protocol/run-spec.v1.json", import.meta.url), "utf8"));
+export const PROTOCOL_VERSION = "2";
+const schema = JSON.parse(await fs.readFile(new URL("../protocol/run-spec.v2.json", import.meta.url), "utf8"));
 const validate = new Ajv({ strict: true, allowUnionTypes: true }).compile(schema);
 
 const endpoint = (value, allowLocal) => {
@@ -174,7 +175,8 @@ export async function runWorker(env = process.env, { signal } = {}) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "drex-browser-run-"));
   const endsAt = Date.now() + spec.limits.max_seconds * 1000;
   const deadline = AbortSignal.timeout(spec.limits.max_seconds * 1000);
-  const combined = AbortSignal.any([deadline, signal ?? new AbortController().signal]);
+  const budget = new HostedBudget(spec.funding);
+  const combined = AbortSignal.any([deadline, budget.signal, signal ?? new AbortController().signal]);
   let result;
   try {
     if (env.DREX_EXPECTED_WORKER_SHA) {
@@ -182,6 +184,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
       if (build.dirty || build.sha !== env.DREX_EXPECTED_WORKER_SHA)
         throw new Error("Worker release does not match the selected build.");
     }
+    combined.throwIfAborted();
     let task = spec.task;
     if (spec.answer_schema)
       task += `\nReturn your final answer as JSON matching this schema, without Markdown fences:\n${JSON.stringify(spec.answer_schema)}`;
@@ -216,6 +219,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
           drexKey: env.DREX_API_KEY,
           llmKey: env.ANTHROPIC_API_KEY,
           signal: combined,
+          budget,
         }),
       },
     );
@@ -238,7 +242,19 @@ export async function runWorker(env = process.env, { signal } = {}) {
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+  if (budget.held > 0n && !budget.signal.aborted) budget.stop(false);
+  if (budget.signal.aborted && !budget.exhausted)
+    result.outcome = { kind: "internal_error", reason: "A provider outcome could not be confirmed." };
+  if (budget.exhausted) result.outcome = { kind: "limit_reached", reason: "Funded browser budget exhausted." };
+  result.usage = budget.usage;
   const event = finishedEvent(config.runId, result);
+  event.data.budget_exhausted = budget.exhausted;
+  event.data.resource_bound_nusd = (
+    budget.spent +
+    budget.held +
+    budget.elapsed * budget.prices.browser_second
+  ).toString();
+  budget.dispose();
   await deliver(config, event);
   return event;
 }

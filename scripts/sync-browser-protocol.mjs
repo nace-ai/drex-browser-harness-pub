@@ -5,12 +5,12 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 const repo = process.argv[2];
 if (!repo) throw new Error("Usage: node scripts/sync-browser-protocol.mjs /path/to/drex");
-const file = "packages/browser-protocol/run-spec.v1.json";
+const file = "packages/browser-protocol/run-spec.v2.json";
 const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const bytes = execFileSync("git", ["-C", repo, "show", `${commit}:${file}`]);
 const dest = new URL("../runner/protocol/", import.meta.url);
 fs.mkdirSync(dest, { recursive: true });
-fs.writeFileSync(new URL("run-spec.v1.json", dest), bytes);
+fs.writeFileSync(new URL("run-spec.v2.json", dest), bytes);
 fs.writeFileSync(
   new URL("source.json", dest),
   JSON.stringify(

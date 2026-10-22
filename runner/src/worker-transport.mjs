@@ -1,10 +1,11 @@
+import { providerUsage } from "./hosted-budget.mjs";
 // The extension gets an in-process RPC channel, never provider credentials or a
 // localhost HTTP proxy. Only its service worker can open this extension port;
 // only the runner's extension page has the Playwright binding back to Node.
 const PORT = "nace-worker-fetch";
 const MAX_RESPONSE = 8 * 1024 * 1024;
 
-export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "proxy", signal }) {
+export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "proxy", signal, budget }) {
   const endpoints = new Map([
     ["https://console.nace.ai/v1/systemone", { url: new URL("/v1/systemone", drexUrl), key: drexKey, kind: "drex" }],
     ["https://api.anthropic.com/v1/messages", { url: new URL("/v1/messages", llmUrl), key: llmKey, kind: "llm" }],
@@ -26,6 +27,7 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
       const beta = request.headers?.["anthropic-beta"];
       if (typeof beta === "string" && /^[a-zA-Z0-9,._-]{1,1000}$/.test(beta)) headers["anthropic-beta"] = beta;
     }
+    const ticket = budget?.reserve(endpoint.kind, JSON.parse(request.body));
     let response;
     try {
       response = await fetch(endpoint.url, {
@@ -37,7 +39,8 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
         signal,
       });
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (ticket) budget.settle(ticket, null);
+      if (signal?.aborted || budget?.signal.aborted) throw error;
       // no answer at all: the one failure the extension may retry as an unbilled connection error
       return { unanswered: true };
     }
@@ -61,6 +64,11 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
         await reader.cancel().catch(() => {});
       }
     }
+    if (ticket)
+      budget.settle(
+        ticket,
+        response.ok && !bodyError ? providerUsage(endpoint.kind, Buffer.concat(chunks).toString("utf8")) : null,
+      );
     return {
       status: response.status,
       headers: { "content-type": response.headers.get("content-type") ?? "application/json" },

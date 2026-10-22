@@ -1,6 +1,6 @@
 {
   "repository": "nace-ai/drex",
-  "commit": "a6a0b5e97db0737d24b7bbe8afa58b7ff640a179",
-  "path": "packages/browser-protocol/run-spec.v1.json",
-  "sha256": "4ca456fe51edea36f68209db0af85925b1c9d3f0c22a3499c8651f198ad3b64f"
+  "commit": "4def4131e62bd3df424a04f2ace2e22e01455a32",
+  "path": "packages/browser-protocol/run-spec.v2.json",
+  "sha256": "2565d30d3ef863f16ce49e5d195f4fdbef2e3ef21f37560601a2fd35174c925f"
 }

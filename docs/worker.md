@@ -25,7 +25,7 @@ Drex owns the normalized JSON schema. Import it from a committed checkout with
 `node scripts/sync-browser-protocol.mjs /path/to/drex`. `runner/protocol/source.json`
 records its commit and checksum. Changes belong in Drex first.
 
-The entry reads `DREX_PROTOCOL_VERSION=1`, `DREX_RUN_ID`, `DREX_RUN_SPEC`,
+The entry reads `DREX_PROTOCOL_VERSION=2`, `DREX_RUN_ID`, `DREX_RUN_SPEC`,
 `DREX_CALLBACK_URL`, `DREX_CALLBACK_SECRET`, `DREX_BASE_URL` and the optional
 `LLM_BASE_URL` (default `https://api.anthropic.com`). Both base URLs are bare
 origins: the worker calls `/v1/systemone` and `/v1/messages` on them and refuses
@@ -128,3 +128,20 @@ approval remain separate from a successful closed test.
 The E2B entrypoint sets `NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/e2b-ca.crt`, the CA E2B installs at sandbox boot. This lets Node verify the credential-injecting proxy without disabling TLS verification.
 
 The entrypoint also sets `PLAYWRIGHT_BROWSERS_PATH=/opt/browsers` explicitly: E2B command sessions did not inherit the build-time Docker `ENV` values in the live smoke.
+
+## Funded execution
+
+Protocol v2 requires Drex's funding envelope: integer nano-USD ceiling, pinned
+customer rates, sandbox billing start and grant-expiry deadline. Node reserves
+every physical provider request before sending it, including retries, using a
+conservative input bound and maximum output. Sandbox time uses the same budget.
+The remaining funds determine an AbortSignal deadline for in-flight calls and
+the browser. An uncertain provider response retains its reservation and stops
+the run. No final-answer request runs after that signal.
+
+A budget stop reports `budget_exhausted: true` with measured tokens; Drex cancels
+the whole request free and releases its wallet hold once. The operational guard
+still counts consumed resources. The extension's local USD budget does not
+authorize hosted spending. Protocol v1 configurations are refused before any
+provider work; deploying this package and selecting its verified worker SHA is
+a separate rollout step. No E2B template or package is published by this change.

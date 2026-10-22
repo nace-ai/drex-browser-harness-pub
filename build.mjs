@@ -19,7 +19,7 @@ const release = process.argv.includes("--release");
 const OUT = release ? "runner/extension" : "dist";
 if (release) {
   const source = JSON.parse(fs.readFileSync("runner/protocol/source.json", "utf8"));
-  const actual = createHash("sha256").update(fs.readFileSync("runner/protocol/run-spec.v1.json")).digest("hex");
+  const actual = createHash("sha256").update(fs.readFileSync("runner/protocol/run-spec.v2.json")).digest("hex");
   if (!/^[0-9a-f]{40}$/.test(source.commit) || source.sha256 !== actual)
     throw new Error("Browser protocol provenance is missing or the generated schema was edited.");
 }
@@ -86,7 +86,7 @@ if (release) {
   const dirty = !!execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], {
     encoding: "utf8",
   }).trim();
-  fs.writeFileSync("runner/build-info.json", JSON.stringify({ sha, dirty, protocol: "1" }, null, 2) + "\n");
+  fs.writeFileSync("runner/build-info.json", JSON.stringify({ sha, dirty, protocol: "2" }, null, 2) + "\n");
   const problems = releaseProblems(OUT);
   if (problems.length) {
     console.error(`release build refused:\n${problems.join("\n")}`);

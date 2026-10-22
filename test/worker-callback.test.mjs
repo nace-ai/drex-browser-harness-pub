@@ -5,7 +5,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { deliver, finishedEvent, runWorker, workerConfig } from "../runner/src/worker.mjs";
 
 const env = () => ({
-  DREX_PROTOCOL_VERSION: "1",
+  DREX_PROTOCOL_VERSION: "2",
   DREX_RUN_ID: "brun_" + "a".repeat(32),
   DREX_CALLBACK_SECRET: "whsec_" + randomBytes(32).toString("base64"),
   DREX_CALLBACK_URL: "https://drex.example.com/api/webhooks/browser-runs",
@@ -19,11 +19,17 @@ const env = () => ({
     risky_actions: "deny",
     limits: { max_cost_usd: 0.04, max_seconds: 60, max_llm_calls: 5 },
     artifacts: { screenshots: true, har: false },
+    funding: {
+      budget_nusd: "40000000",
+      started_at_ms: Date.now(),
+      expires_at_ms: Date.now() + 60000,
+      prices: { drex_input: "60", llm_input: "1000", llm_output: "5000", browser_second: "1000" },
+    },
   }),
 });
 test("worker refuses incompatible protocol and credentialed browser origins before executing", () => {
   assert.equal(workerConfig(env()).spec.task, "Read the title.");
-  assert.throws(() => workerConfig({ ...env(), DREX_PROTOCOL_VERSION: "2" }), /protocol/);
+  assert.throws(() => workerConfig({ ...env(), DREX_PROTOCOL_VERSION: "3" }), /protocol/);
   const input = env(),
     spec = JSON.parse(input.DREX_RUN_SPEC);
   spec.start_url = "http://api.anthropic.com";
@@ -100,7 +106,7 @@ test("a refused spec is reported to Drex as internal_error instead of leaving th
     // a report Drex refuses leaves the refusal as the error, with the delivery failure attached
     status = 400;
     await assert.rejects(
-      runWorker({ ...local, DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`, DREX_PROTOCOL_VERSION: "2" }),
+      runWorker({ ...local, DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`, DREX_PROTOCOL_VERSION: "3" }),
       (e) => /protocol version/.test(e.message) && !!e.delivery,
     );
     assert.equal(received.length, 2);
