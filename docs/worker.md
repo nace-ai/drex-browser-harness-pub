@@ -159,8 +159,14 @@ includes cache read and creation tokens. A budget stop reports
 `outcome.kind: "limit_reached"` with `budget_exhausted: true`; Drex cancels the
 whole request free and releases its wallet hold once. An unconfirmed provider
 outcome reports `internal_error` with `budget_exhausted: false`, its reservation
-included in `resource_bound_nusd`. The operational guard still counts consumed
+included in `resource_bound_nusd`. That includes a call still in flight when
+`max_seconds`, a Drex cancellation or the end of the run cuts it off: the
+outcome is then `internal_error`, not `limit_reached` or `cancelled`. Usage
+above a call's reservation is a budget stop. A refused configuration's report
+has neither funding field. The operational guard still counts consumed
 resources. The extension's local USD budget does not authorize hosted spending.
 Protocol v1 configurations are refused before any provider work; deploying this
 package and selecting its verified worker SHA is a separate rollout step. No E2B
 template or package is published by this change.
+
+An extension request abort or port disconnect cancels its Node provider fetch. An uncertain receipt retains its reservation and stops the funded run, so cancellation cannot turn into a free physical retry. The pinned prices are customer tariff rates, not provider acquisition costs; provider cache/tier multipliers do not change Drex settlement.

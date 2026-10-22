@@ -90,7 +90,11 @@ export class HostedBudget {
     }
     this.held += bound;
     this.arm();
-    this.signal.throwIfAborted();
+    if (this.signal.aborted) {
+      // arm() stopped (the grant's end, not checked above): this call is never sent, so it holds nothing
+      this.held -= bound;
+      this.signal.throwIfAborted();
+    }
     return { kind, bound, settled: false };
   }
 

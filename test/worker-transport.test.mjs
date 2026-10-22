@@ -32,9 +32,18 @@ test(
     const calls = [];
     let oversized = false;
     let noContent = false;
+    let stall = false;
+    let closed;
+    const disconnected = new Promise((resolve) => (closed = resolve));
     const model = http.createServer((req, res) => {
       calls.push({ url: req.url, key: req.headers["x-api-key"] });
       if (noContent) return res.writeHead(204).end();
+      if (stall) {
+        res.on("close", closed);
+        res.writeHead(200);
+        res.write("{");
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
       res.end(oversized ? Buffer.alloc(8 * 1024 * 1024 + 1, 0x20) : '{"content":[{"type":"text","text":"ok"}]}');
     });
@@ -127,6 +136,29 @@ test(
           url.includes("systemone") ? { status: 200, error: "TypeError" } : { status: null, error: "Error" },
         );
       }
+      oversized = false;
+      stall = true;
+      const cancelled = await sw.evaluate(async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 300);
+        try {
+          await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            body: "{}",
+            signal: controller.signal,
+          });
+          return "not cancelled";
+        } catch (error) {
+          return error.name;
+        }
+      });
+      assert.equal(cancelled, "AbortError");
+      await Promise.race([
+        disconnected,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Provider kept running after port cancellation")), 2000),
+        ),
+      ]);
     } finally {
       await ctx?.close();
       await proxy.close();

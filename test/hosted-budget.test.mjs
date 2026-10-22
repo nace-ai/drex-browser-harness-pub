@@ -15,6 +15,18 @@ function funding(budget = "1000000") {
 const llm = { llmModel: "claude-haiku-5-5" };
 const decision = { model: "drex-max", state: "test", questions: { decision: {} } };
 
+async function fundedServer(handler, run) {
+  const server = http.createServer(handler);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await run(`http://127.0.0.1:${server.address().port}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+const drexCall = (transport) =>
+  transport({ url: "https://console.nace.ai/v1/systemone", method: "POST", body: JSON.stringify(decision) });
+
 test("concurrent physical calls share a hard ceiling even before any usage arrives", () => {
   const budget = new HostedBudget(funding());
   try {
@@ -29,16 +41,73 @@ test("concurrent physical calls share a hard ceiling even before any usage arriv
 });
 
 test("sandbox time aborts a running provider call when no funds remain", async () => {
-  const spec = funding("2000");
-  spec.started_at_ms = Date.now() - 1980;
-  const budget = new HostedBudget(spec);
+  // the reservation, the 10-second cleanup reserve and 1.5 browser seconds: the timer stops the run a second in
+  const spec = funding(String(262144 + 10000 + 1500));
+  let received;
+  const arrived = new Promise((resolve) => (received = resolve));
+  await fundedServer(
+    (_req, res) => {
+      res.writeHead(200);
+      res.write("{");
+      received();
+    },
+    async (url) => {
+      const budget = new HostedBudget(spec);
+      try {
+        const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
+        const call = drexCall(transport);
+        await arrived;
+        assert.equal(budget.signal.aborted, false);
+        await call;
+        assert.equal(budget.signal.aborted, true);
+        assert.equal(budget.exhausted, true);
+        assert.equal(budget.held, 262144n, "a cut-off call keeps its liability");
+        assert.ok(Date.now() - spec.started_at_ms >= 1000);
+      } finally {
+        budget.dispose();
+      }
+    },
+  );
+});
+
+test("a call reserved after the grant's end is refused and holds nothing", () => {
+  let now = Date.now();
+  const spec = { ...funding("100000000"), started_at_ms: now, expires_at_ms: now + 60000 };
+  const budget = new HostedBudget(spec, { now: () => now });
   try {
-    await new Promise((resolve) =>
-      budget.signal.aborted ? resolve() : budget.signal.addEventListener("abort", resolve, { once: true }),
-    );
-    assert.equal(budget.signal.aborted, true);
+    now += 50000; // the timer has not fired yet
+    assert.throws(() => budget.reserve("drex", decision), /budget exhausted/);
+    assert.equal(budget.held, 0n);
+    assert.equal(budget.exhausted, true);
   } finally {
     budget.dispose();
+  }
+});
+
+test("usage above its reservation stops the run as exhausted; unreadable usage keeps the liability", () => {
+  const over = new HostedBudget(funding("100000000"));
+  try {
+    over.settle(over.reserve("drex", decision), { input: 262145, output: 0 });
+    assert.equal(over.exhausted, true);
+    assert.equal(over.spent, 262145n);
+  } finally {
+    over.dispose();
+  }
+  for (const usage of [
+    { input: -1, output: 0 },
+    { input: 1.5, output: 0 },
+    { input: "9", output: 0 },
+  ]) {
+    const budget = new HostedBudget(funding("100000000"));
+    try {
+      budget.settle(budget.reserve("drex", decision), usage);
+      assert.equal(budget.held, 262144n, JSON.stringify(usage));
+      assert.equal(budget.spent, 0n);
+      assert.equal(budget.exhausted, false);
+      assert.equal(budget.signal.aborted, true);
+    } finally {
+      budget.dispose();
+    }
   }
 });
 
@@ -90,18 +159,6 @@ test("truncated provider SSE never releases the unknown liability", () => {
   );
 });
 
-async function fundedServer(handler, run) {
-  const server = http.createServer(handler);
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  try {
-    await run(`http://127.0.0.1:${server.address().port}`);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
-}
-const drexCall = (transport) =>
-  transport({ url: "https://console.nace.ai/v1/systemone", method: "POST", body: JSON.stringify(decision) });
-
 test("a complete HTTP error answer is released so the extension can retry it; a 2xx settles its usage", async () => {
   let status = 429;
   await fundedServer(
@@ -129,7 +186,7 @@ test("a complete HTTP error answer is released so the extension can retry it; a 
 });
 
 test("a gateway 5xx or 408 keeps its reservation and stops the run", async () => {
-  for (const status of [408, 500, 502, 504]) {
+  for (const status of [408, 500, 502, 503, 504]) {
     await fundedServer(
       (_req, res) => {
         res.writeHead(status);
@@ -140,8 +197,9 @@ test("a gateway 5xx or 408 keeps its reservation and stops the run", async () =>
         try {
           const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
           assert.equal((await drexCall(transport)).status, status);
-          assert.ok(budget.held > 0n);
+          assert.equal(budget.held, 262144n);
           assert.equal(budget.signal.aborted, true);
+          assert.equal(budget.exhausted, false, "an unknown outcome is not a budget stop");
         } finally {
           budget.dispose();
         }
@@ -209,9 +267,39 @@ test("WebP screenshots are bounded from their header like PNG and JPEG; unreadab
       budget.dispose();
     }
   }
+  const png = Buffer.alloc(24);
+  png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png.writeUInt32BE(1280, 16);
+  png.writeUInt32BE(800, 20);
+  // SOI, an APP0 and a DHT (C4, not a frame) before the SOF0 that gives the size
+  const jpeg = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc4, 0, 4, 0, 0, 0xff, 0xc0, 0, 17, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0,
+  ]);
+  jpeg.writeUInt16BE(800, 19);
+  jpeg.writeUInt16BE(1280, 21);
+  for (const [media, image] of [
+    ["image/png", png],
+    ["image/jpeg", jpeg],
+  ]) {
+    const budget = new HostedBudget(funding("100000000"), llm);
+    try {
+      const body = request(media, image.toString("base64"));
+      const text = JSON.stringify(body, (key, value) => (key === "source" ? { type: "image" } : value));
+      assert.equal(budget.reserve("llm", body).bound, BigInt(Buffer.byteLength(text) + 4096 + tokens + 100), media);
+    } finally {
+      budget.dispose();
+    }
+  }
+  const huge = Buffer.from(png);
+  huge.writeUInt32BE(20001, 16);
   const budget = new HostedBudget(funding("100000000"), llm);
   try {
     assert.throws(() => budget.reserve("llm", request("image/gif", "R0lGODlh")), /Unbounded funded image/);
+    assert.throws(() => budget.reserve("llm", request("image/png", huge.toString("base64"))), /Unbounded funded image/);
+    assert.throws(
+      () => budget.reserve("llm", request("image/png", png.subarray(0, 20).toString("base64"))),
+      /Unbounded/,
+    );
   } finally {
     budget.dispose();
   }
