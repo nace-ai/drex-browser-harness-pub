@@ -27,13 +27,17 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
       const beta = request.headers?.["anthropic-beta"];
       if (typeof beta === "string" && /^[a-zA-Z0-9,._-]{1,1000}$/.test(beta)) headers["anthropic-beta"] = beta;
     }
-    const ticket = budget?.reserve(endpoint.kind, JSON.parse(request.body));
+    // An aborted run never reserves (or sends) another call.
+    signal?.throwIfAborted();
+    const parsed = budget && JSON.parse(request.body);
+    const ticket = budget?.reserve(endpoint.kind, parsed);
     let response;
     try {
       response = await fetch(endpoint.url, {
         method: "POST",
         headers,
-        body: request.body,
+        // a funded call sends the body it reserved, re-serialized, so duplicate keys cannot differ between the two
+        body: parsed ? JSON.stringify(parsed) : request.body,
         redirect: "error",
         // no fixed cap: the extension streams long replies and times each call against its own run budget
         signal,
@@ -64,10 +68,20 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
         await reader.cancel().catch(() => {});
       }
     }
+    // A complete refusal (4xx other than 408, or Anthropic's 529) bills nothing: released, so the
+    // extension may retry it. Other 5xx and 408 may come from a gateway after the provider did billed work.
+    const refused =
+      response.status === 529 || (response.status >= 400 && response.status < 500 && response.status !== 408);
     if (ticket)
       budget.settle(
         ticket,
-        response.ok && !bodyError ? providerUsage(endpoint.kind, Buffer.concat(chunks).toString("utf8")) : null,
+        bodyError
+          ? null
+          : response.ok
+            ? providerUsage(endpoint.kind, Buffer.concat(chunks).toString("utf8"))
+            : refused
+              ? { input: 0, output: 0 }
+              : null,
       );
     return {
       status: response.status,

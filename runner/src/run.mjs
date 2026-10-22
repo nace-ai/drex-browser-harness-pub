@@ -240,12 +240,20 @@ export function progressLine(type, e) {
 
 /**
  * Runs one task. opts: {task, url, profile, tempProfile, headed, limits {maxCostUsd, maxSeconds, maxLlmCalls}, model,
- * allowRisky, out, allowedOrigins, endsAt}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). handleSignals: see launch().
+ * allowRisky, out, allowedOrigins, endsAt}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. handleSignals: see launch().
  * Returns the result (resultOf's shape). Throws RunnerError for what stops a run from starting.
  */
 export async function runTask(
   opts,
-  { env = process.env, onProgress = () => {}, signal, handleSignals = true, transport, allowLocal = false } = {},
+  {
+    env = process.env,
+    onProgress = () => {},
+    signal,
+    killSignal,
+    handleSignals = true,
+    transport,
+    allowLocal = false,
+  } = {},
 ) {
   const keys = keysFrom(env);
   const extension = extensionDir(env);
@@ -267,7 +275,11 @@ export async function runTask(
   const onAbort = () => {
     if (!polling && ctx) void close();
   };
+  const onKill = () => {
+    if (ctx) void close();
+  };
   signal?.addEventListener("abort", onAbort, { once: true });
+  killSignal?.addEventListener("abort", onKill, { once: true });
   try {
     if (signal?.aborted) throw new RunnerError("cancelled", "The run was cancelled before it started.");
     fs.mkdirSync(out, { recursive: true });
@@ -409,7 +421,7 @@ export async function runTask(
     }
     let run = lost === null ? null : { status: "error", message: `The run was lost: ${lost}` };
     if (lost === null) await send({ type: "lastRun" });
-    for (let i = 0; i < 20 && run === null; i++) {
+    for (let i = 0; i < 20 && run === null && !killSignal?.aborted; i++) {
       run = await panel.evaluate(() => globalThis.naceRunner.state.lastRun ?? null).catch(() => null);
       if (run === null) await sleep(250);
     }
@@ -417,7 +429,7 @@ export async function runTask(
       const error = await panel.evaluate(() => globalThis.naceRunner.state.refused?.message ?? null).catch(() => null);
       if (error) run = { status: "error", message: error };
     }
-    const page = agentPage(ctx, run?.report?.url);
+    const page = killSignal?.aborted ? null : agentPage(ctx, run?.report?.url);
     return await finish({ run, out, id, opts, created, started, page, ended });
   } catch (e) {
     if (signal?.aborted && !(e instanceof RunnerError))
@@ -425,6 +437,7 @@ export async function runTask(
     throw e;
   } finally {
     signal?.removeEventListener("abort", onAbort);
+    killSignal?.removeEventListener("abort", onKill);
     if (ctx) await close();
     await network?.close();
     release();

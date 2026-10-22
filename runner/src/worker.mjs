@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHmac, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import Ajv from "ajv";
-import { runTask } from "./run.mjs";
+import { DEFAULT_MODEL, runTask } from "./run.mjs";
 import { HostedBudget } from "./hosted-budget.mjs";
 import { modelTransport } from "./worker-transport.mjs";
 
@@ -113,7 +113,11 @@ export function finishedEvent(runId, result) {
   };
 }
 
-export async function deliver(config, event, { timeoutMs = 30000 } = {}) {
+const DELIVERY_MS = 30000;
+// the window a funded report gets when its funds are already gone
+const LAST_REPORT_MS = 1000;
+
+export async function deliver(config, event, { timeoutMs = DELIVERY_MS } = {}) {
   const body = JSON.stringify(event);
   if (Buffer.byteLength(body) > 1_000_000) throw new Error("Worker report exceeds callback limit.");
   const id = `msg_${randomUUID()}`;
@@ -175,7 +179,8 @@ export async function runWorker(env = process.env, { signal } = {}) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "drex-browser-run-"));
   const endsAt = Date.now() + spec.limits.max_seconds * 1000;
   const deadline = AbortSignal.timeout(spec.limits.max_seconds * 1000);
-  const budget = new HostedBudget(spec.funding);
+  // runTask is given no model, so the extension runs DEFAULT_MODEL, the model Drex pins LLM prices for
+  const budget = new HostedBudget(spec.funding, { llmModel: DEFAULT_MODEL });
   const combined = AbortSignal.any([deadline, budget.signal, signal ?? new AbortController().signal]);
   let result;
   try {
@@ -211,6 +216,9 @@ export async function runWorker(env = process.env, { signal } = {}) {
         // Only placeholders reach Chromium. Local keys stay in Node; E2B uses proxy injection.
         env: { DREX_API_KEY: "worker-transport", ANTHROPIC_API_KEY: "worker-transport" },
         signal: combined,
+        // a funding stop is billed by the second: Chromium closes at once, without waiting for the agent's result,
+        // which Drex discards for a budget stop or an unconfirmed provider outcome anyway
+        killSignal: budget.signal,
         handleSignals: false,
         allowLocal: config.allowLocal,
         transport: modelTransport({
@@ -255,6 +263,10 @@ export async function runWorker(env = process.env, { signal } = {}) {
     budget.elapsed * budget.prices.browser_second
   ).toString();
   budget.dispose();
-  await deliver(config, event);
+  // the report is sent and retried only within the funded lifetime the cleanup reserve leaves; a 1-second window
+  // is still given when nothing is left (a grant that expired before the run), so Drex hears of the run at all
+  await deliver(config, event, {
+    timeoutMs: Math.min(DELIVERY_MS, Math.max(LAST_REPORT_MS, budget.until(0n) - budget.now())),
+  });
   return event;
 }

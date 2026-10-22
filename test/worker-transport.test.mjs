@@ -6,7 +6,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { launch, extensionDir } from "../runner/src/run.mjs";
+import { launch, extensionDir, runTask } from "../runner/src/run.mjs";
 import { connectTransport, modelTransport, restrictPages } from "../runner/src/worker-transport.mjs";
 import { browserProxy } from "../runner/src/worker-network.mjs";
 
@@ -170,3 +170,53 @@ test("only a model call that got no answer is reported as unanswered; a billed f
     await new Promise((resolve) => model.close(resolve));
   }
 });
+
+test(
+  "a funding stop closes Chromium during a model call without the cooperative stop wait",
+  { skip, timeout: 15000 },
+  async () => {
+    const site = http.createServer((_req, res) => res.end("<title>Funding fixture</title><p>Find the title</p>"));
+    await new Promise((resolve) => site.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${site.address().port}`;
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "funded-stop-"));
+    const stop = new AbortController();
+    let called = 0;
+    let stoppedAt;
+    try {
+      await runTask(
+        {
+          task: "Read the title",
+          url,
+          tempProfile: true,
+          out: dir,
+          allowedOrigins: [url],
+          limits: { maxSeconds: 600, maxLlmCalls: 20 },
+        },
+        {
+          env: { DREX_API_KEY: "fixture", ANTHROPIC_API_KEY: "fixture" },
+          signal: stop.signal,
+          killSignal: stop.signal,
+          allowLocal: true,
+          handleSignals: false,
+          transport: async () => {
+            called++;
+            setTimeout(() => {
+              stoppedAt = performance.now();
+              stop.abort();
+            }, 100);
+            return new Promise(() => {}); // provider never answers; browser shutdown must not wait for it
+          },
+        },
+      ).catch((error) => {
+        assert.equal(error.code, "cancelled");
+      });
+      assert.equal(called, 1);
+      assert.ok(performance.now() - stoppedAt < 5000, "funding stop waited for cooperative teardown");
+    } finally {
+      stop.abort();
+      site.closeAllConnections();
+      await new Promise((resolve) => site.close(resolve));
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  },
+);

@@ -91,15 +91,13 @@ cancellation and sandbox cleanup. Heartbeats remain optional and are not sent.
 No provider exception or secret is printed by the worker entry.
 
 The harness enforces its existing model-spend/call/time budgets. Through the
-worker's model transport, an LLM call (`/v1/messages`) is retried as unbilled
-only when it got no answer at all; a cut-off or oversized reply, or a lost
-transport, counts as an unknown cost and ends the run as `limit_reached`. A Drex
-call (`/v1/systemone`) that fails before a response, including a lost transport,
-is released and retried as unbilled, as the extension's Drex client does for any
-failed request; only a cut-off or oversized 2xx Drex reply counts as an unknown
-cost. Its model
-price estimate is not Drex's customer bill, which also includes browser time.
-This change does not promise a new provider-spend guarantee.
+worker's model transport, a complete refusal (a 4xx other than 408, or
+Anthropic's 529) bills nothing: its reservation is released and the extension
+may retry it. Any other uncertain result (no answer at all, a lost transport, a
+cut-off or oversized reply, a 408 or other 5xx that a gateway may return after
+the provider did billed work, or a 2xx without complete usage) keeps its
+reservation and stops the run; see "Funded execution". Its model price estimate is not Drex's
+customer bill, which also includes browser time.
 
 ## E2B candidate
 
@@ -131,17 +129,38 @@ The entrypoint also sets `PLAYWRIGHT_BROWSERS_PATH=/opt/browsers` explicitly: E2
 
 ## Funded execution
 
-Protocol v2 requires Drex's funding envelope: integer nano-USD ceiling, pinned
-customer rates, sandbox billing start and grant-expiry deadline. Node reserves
-every physical provider request before sending it, including retries, using a
-conservative input bound and maximum output. Sandbox time uses the same budget.
-The remaining funds determine an AbortSignal deadline for in-flight calls and
-the browser. An uncertain provider response retains its reservation and stops
-the run. No final-answer request runs after that signal.
+Protocol v2 requires Drex's funding envelope `spec.funding`: `budget_nusd`
+(integer nano-USD ceiling, as a decimal string), `started_at_ms` (sandbox
+billing start) and `expires_at_ms` (grant expiry), both epoch milliseconds, and
+pinned customer rates `prices.drex_input`, `prices.llm_input`, `prices.llm_output`
+(nano-USD per token) and `prices.browser_second` (nano-USD per started second).
+Node reserves every physical provider request before sending it, including
+retries, using a conservative input bound and maximum output: a Drex Max call
+holds 262,144 tokens per question; an LLM call holds its UTF-8 body bytes, a
+framing allowance and a pixel bound for each PNG, JPEG or WebP image, plus
+`max_tokens` (at most 4096). An LLM call must name the worker's model, the one
+the LLM prices are pinned for, and may not use server tools, MCP servers, a
+container or URL and file sources. Requests outside these bounds are refused. Sandbox
+time uses the same budget. The remaining funds and `expires_at_ms` determine an
+AbortSignal deadline for in-flight calls and the browser, alongside `max_seconds`.
+Ten sandbox seconds of funds, and the last ten seconds before `expires_at_ms`,
+are kept back for cleanup and the report. The report is sent and retried only
+within what is left of that funded lifetime (a 1-second window when nothing is
+left, so Drex hears of the run and stops the sandbox), not for the full
+30-second delivery window. An uncertain provider response retains its
+reservation and stops the run. No provider request is reserved or sent after
+that signal, and Chromium is closed at once, without asking the agent to stop or
+reading its result and end screen.
 
-A budget stop reports `budget_exhausted: true` with measured tokens; Drex cancels
-the whole request free and releases its wallet hold once. The operational guard
-still counts consumed resources. The extension's local USD budget does not
-authorize hosted spending. Protocol v1 configurations are refused before any
-provider work; deploying this package and selecting its verified worker SHA is
-a separate rollout step. No E2B template or package is published by this change.
+The finished event's `data` adds `budget_exhausted` and `resource_bound_nusd`
+(decimal nano-USD string: settled usage, still-held reservations and elapsed
+sandbox seconds). `usage` is the provider-reported usage Node metered; LLM input
+includes cache read and creation tokens. A budget stop reports
+`outcome.kind: "limit_reached"` with `budget_exhausted: true`; Drex cancels the
+whole request free and releases its wallet hold once. An unconfirmed provider
+outcome reports `internal_error` with `budget_exhausted: false`, its reservation
+included in `resource_bound_nusd`. The operational guard still counts consumed
+resources. The extension's local USD budget does not authorize hosted spending.
+Protocol v1 configurations are refused before any provider work; deploying this
+package and selecting its verified worker SHA is a separate rollout step. No E2B
+template or package is published by this change.
