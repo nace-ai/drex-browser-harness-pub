@@ -71,9 +71,11 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
       }
     }
     // A complete refusal (4xx other than 408, or Anthropic's 529) bills nothing: released, so the
-    // extension may retry it. Other 5xx and 408 may come from a gateway after the provider did billed work.
+    // extension may retry it. Other 5xx (a Drex 529 included) and 408 may come from a gateway after the provider did
+    // billed work.
     const refused =
-      response.status === 529 || (response.status >= 400 && response.status < 500 && response.status !== 408);
+      (response.status === 529 && endpoint.kind === "llm") ||
+      (response.status >= 400 && response.status < 500 && response.status !== 408);
     if (ticket)
       budget.settle(
         ticket,
@@ -142,12 +144,15 @@ export async function connectTransport(panel, worker, transport) {
       // Keep the MV3 worker alive while Node buffers a model's streamed reply.
       const ping = setInterval(() => port.postMessage({ ping: true }), 10000);
       const id = crypto.randomUUID();
+      let sent = false;
       let complete = false;
       port.onDisconnect.addListener(() => {
         clearInterval(ping);
-        if (!complete) void globalThis.__naceWorkerAbort(id).catch(() => {});
+        // a port closed before its request has no call to abort (and its id would stay in Node's map)
+        if (sent && !complete) void globalThis.__naceWorkerAbort(id).catch(() => {});
       });
       port.onMessage.addListener(async (request) => {
+        sent = true;
         try {
           const result = await globalThis.__naceWorkerFetch(request, id);
           complete = true;

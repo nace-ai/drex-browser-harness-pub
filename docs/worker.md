@@ -57,13 +57,14 @@ the agent knows any other address is blocked.
 ## Network boundary
 
 Only the extension worker uses a private extension port to its runner-owned
-extension page. That page alone exposes a Playwright binding to Node. The
-binding accepts only the two model operations, never arbitrary destination URLs
-or headers. Node performs the request; in E2B, the egress proxy inserts provider
+extension page. That page alone exposes two Playwright bindings to Node: one
+accepts only the two model operations, never arbitrary destination URLs or
+headers; the other only cancels such a call, by its id, when its port closes. Node performs the request; in E2B, the egress proxy inserts provider
 credentials. The extension receives placeholders and responses. Chromium's
 processes start without the worker's `DREX_*`, `E2B_*`, `*_API_KEY`, secret or
 token variables. A model call has no fixed timeout of its own: the extension
-times it against the run budget, and the run deadline ends it.
+times it against the run budget, and the run deadline or the funded budget's
+deadline ends it.
 
 Chromium uses a per-run proxy that allows only exact declared HTTP(S) origins,
 including redirects and CONNECT destinations. Hosts are compared without a
@@ -81,8 +82,9 @@ MiniWoB fixtures do not establish safety on arbitrary sites.
 ## Callback and limits
 
 One finished event is signed using the run-specific Standard Webhooks key.
-Network errors and 5xx retry with the same event ID/body for at most 30 seconds;
-4xx stop. Each request has at most 5 seconds. Browser execution has its run
+Network errors and 5xx retry with the same event ID/body for at most 30 seconds
+(a funded run's report: only within its remaining funded lifetime, see "Funded
+execution"); 4xx stop. Each request has at most 5 seconds. Browser execution has its run
 deadline (`max_seconds` from the worker's start; the extension's own budget ends
 5 seconds before it, after the browser's start-up, and is never under 1 second,
 so its result can still be read and reported), and E2B's outer TTL is
@@ -92,7 +94,7 @@ No provider exception or secret is printed by the worker entry.
 
 The harness enforces its existing model-spend/call/time budgets. Through the
 worker's model transport, a complete refusal (a 4xx other than 408, or
-Anthropic's 529) bills nothing: its reservation is released and the extension
+Anthropic's 529; a 529 from Drex is treated as a 5xx) bills nothing: its reservation is released and the extension
 may retry it. Any other uncertain result (no answer at all, a lost transport, a
 cut-off or oversized reply, a 408 or other 5xx that a gateway may return after
 the provider did billed work, or a 2xx without complete usage) keeps its
@@ -114,7 +116,10 @@ Each build attempt uses a new alias containing the source SHA and a random suffi
 actual E2B build ID before selecting it. Do not reassign an existing release
 alias to different content. Keep the previous manifest for rollback; on the
 first release the rollback is to stop admissions and retain cleanup/callback
-configuration for existing runs.
+configuration for existing runs. The manifest also records `protocol_version`:
+a worker accepts only its own protocol version, so Drex's protocol version and
+the selected `BROWSER_WORKER_SHA` change together, and rolling back to a v1
+template also needs Drex to send v1 (or to stop admissions).
 
 Before enabling the feature, test actual API → sandbox → browser → signed
 callback → settlement → kill on a reachable test environment. A manually
@@ -136,11 +141,15 @@ pinned customer rates `prices.drex_input`, `prices.llm_input`, `prices.llm_outpu
 (nano-USD per token) and `prices.browser_second` (nano-USD per started second).
 Node reserves every physical provider request before sending it, including
 retries, using a conservative input bound and maximum output: a Drex Max call
-holds 262,144 tokens per question; an LLM call holds its UTF-8 body bytes, a
-framing allowance and a pixel bound for each PNG, JPEG or WebP image, plus
-`max_tokens` (at most 4096). An LLM call must name the worker's model, the one
-the LLM prices are pinned for, and may not use server tools, MCP servers, a
-container or URL and file sources. Requests outside these bounds are refused. Sandbox
+must use `drex-max` with at least one question and holds 262,144 tokens per
+question; an LLM call holds its UTF-8 body bytes, a
+framing allowance and a pixel bound for each PNG, JPEG or WebP image in a
+message's or tool result's content (its header must give both sides, each at
+most 20,000 pixels; other base64 bytes count as text), plus `max_tokens` (at
+most 4096). An LLM call must name the worker's model, the one the LLM prices
+are pinned for, and may not use server tools, MCP servers, a container, URL and
+file sources, or a document other than plain text (PDFs and content documents
+are billed by pages and pixels its bytes do not bound). Requests outside these bounds are refused. Sandbox
 time uses the same budget. The remaining funds and `expires_at_ms` determine an
 AbortSignal deadline for in-flight calls and the browser, alongside `max_seconds`.
 Ten sandbox seconds of funds, and the last ten seconds before `expires_at_ms`,
@@ -154,7 +163,10 @@ reading its result and end screen.
 
 The finished event's `data` adds `budget_exhausted` and `resource_bound_nusd`
 (decimal nano-USD string: settled usage, still-held reservations and elapsed
-sandbox seconds). `usage` is the provider-reported usage Node metered; LLM input
+sandbox seconds), taken after cleanup and before the report is sent: the
+seconds spent sending the report are not in it. When no funds are left, that
+1-second report window is Nace's control-plane overhead, never resumed provider
+work or customer usage debt. `usage` is the provider-reported usage Node metered; LLM input
 includes cache read and creation tokens. A budget stop reports
 `outcome.kind: "limit_reached"` with `budget_exhausted: true`; Drex cancels the
 whole request free and releases its wallet hold once. An unconfirmed provider

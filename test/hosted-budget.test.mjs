@@ -133,8 +133,10 @@ test("funded transport refuses an unfunded call before the provider receives it"
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
-  const budget = new HostedBudget(funding("5000"));
+  // funded beyond the cleanup reserve, so the budget is live, but not for a Drex call's bound on top of it
+  const budget = new HostedBudget(funding("200000"));
   try {
+    assert.equal(budget.signal.aborted, false);
     const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
     await assert.rejects(
       transport({ url: "https://console.nace.ai/v1/systemone", method: "POST", body: JSON.stringify(decision) }),
@@ -458,5 +460,77 @@ test("a funded LLM call is refused for another model or for work its body does n
     assert.throws(() => unpinned.reserve("llm", call()), /Unsupported funded LLM request/);
   } finally {
     unpinned.dispose();
+  }
+});
+
+test("a funded call that gets no answer keeps its liability and is never offered as an unbilled retry", async () => {
+  const server = http.createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  await new Promise((resolve) => server.close(resolve));
+  const budget = new HostedBudget(funding("100000000"));
+  try {
+    const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
+    await assert.rejects(drexCall(transport));
+    assert.equal(budget.held, 262144n);
+    assert.equal(budget.signal.aborted, true);
+    assert.equal(budget.exhausted, false);
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("a 529 is a free refusal only from the LLM provider; from Drex it keeps its reservation", async () => {
+  await fundedServer(
+    (_req, res) => {
+      res.writeHead(529);
+      res.end(JSON.stringify({ error: "overloaded" }));
+    },
+    async (url) => {
+      const budget = new HostedBudget(funding("100000000"), llm);
+      try {
+        const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
+        const body = JSON.stringify({
+          model: llm.llmModel,
+          max_tokens: 10,
+          messages: [{ role: "user", content: "hi" }],
+        });
+        assert.equal(
+          (await transport({ url: "https://api.anthropic.com/v1/messages", method: "POST", body })).status,
+          529,
+        );
+        assert.equal(budget.held, 0n);
+        assert.equal(budget.signal.aborted, false);
+        assert.equal((await drexCall(transport)).status, 529);
+        assert.equal(budget.held, 262144n);
+        assert.equal(budget.signal.aborted, true);
+        assert.equal(budget.exhausted, false);
+      } finally {
+        budget.dispose();
+      }
+    },
+  );
+});
+
+test("an LLM call settles input and output at their own prices; only usage above its bound stops the run", () => {
+  const spec = funding("100000000");
+  spec.prices = { drex_input: "3", llm_input: "7", llm_output: "11", browser_second: "1000" };
+  const body = { model: llm.llmModel, max_tokens: 100, messages: [{ role: "user", content: "hi" }] };
+  const budget = new HostedBudget(spec, llm);
+  try {
+    budget.settle(budget.reserve("llm", body), { input: 20, output: 5 });
+    assert.equal(budget.spent, 20n * 7n + 5n * 11n);
+    assert.deepEqual(budget.usage, { drex_input_tokens: 0, llm_input_tokens: 20, llm_output_tokens: 5 });
+    const ticket = budget.reserve("llm", body);
+    // usage costing exactly the bound is within it
+    budget.settle(ticket, { input: Number((ticket.bound - 100n * 11n) / 7n), output: 100 });
+    assert.equal(budget.spent, 20n * 7n + 5n * 11n + ticket.bound);
+    assert.equal(budget.signal.aborted, false);
+    const over = budget.reserve("llm", body);
+    budget.settle(over, { input: 0, output: Number(over.bound / 11n) + 1 });
+    assert.equal(budget.exhausted, true);
+    assert.equal(budget.held, 0n);
+  } finally {
+    budget.dispose();
   }
 });

@@ -304,7 +304,7 @@ for cloud runs, which are not available yet ([worker.md](worker.md)).
   `runner/protocol/` schema whose checksum differs from `source.json` (re-import it from Drex with
   `node scripts/sync-browser-protocol.mjs /path/to/drex`), and records the git SHA and dirty state in
   `runner/build-info.json`. The package's `drex-browser-run` cloud worker is described in [worker.md](worker.md); its
-  tests are `test/worker-*.test.mjs` (the browser one is skipped without Playwright's Chromium and a release build).
+  tests are `test/worker-*.test.mjs` and `test/hosted-budget.test.mjs` (the browser one is skipped without Playwright's Chromium and a release build).
 - `NACE_BROWSER_EXTENSION=dist` runs the runner on the dev build instead, if it was built without an `.env`: the runner
   refuses a build with `keys.local.json` (`extension_has_keys`), since the extension would save those keys into the
   profile.
