@@ -265,6 +265,46 @@ export function stayOnSite(steps: Step[], site: string | null): { steps: Step[];
   return { steps: kept, dropped };
 }
 
+/** deadUrls: a page that says it doesn't exist: its title, or the start of its text, says 404 or "page not found". */
+const DEAD_PAGE =
+  /\b404\b|page not found|page (?:does not|doesn['’]t) exist|no such page|the page you requested (?:was|could) not/i;
+export function deadPage(info: { title?: string; text?: string }): boolean {
+  return DEAD_PAGE.test(info.title ?? "") || DEAD_PAGE.test((info.text ?? "").slice(0, 600));
+}
+
+/** deadUrls: an address the planner made up: not one of the user's open tabs and not written in the task. Only these
+ * are given up on a not-found page; an address the user gave is the user's to fix. */
+export function guessedUrl(url: string, task: string, tabUrls: (string | undefined)[]): boolean {
+  if (!url || !originOf(url)) return false;
+  const bare = (u: string) => u.replace(/[#?].*$/, "").replace(/\/+$/, "");
+  if (tabUrls.some((t) => t && bare(t) === bare(url))) return false;
+  return !task.includes(bare(url));
+}
+
+/** navMap: the site map lines the planner gets: every link the page shows (at most 50), then the hidden ones (inside
+ * closed menus) whose menu path shares a word with the task (its first five letters, so "switch" finds "Switches"),
+ * at most MAX_SITE_MAP lines in all. A storefront's 250 category links would otherwise grow every plan call by about
+ * 5,000 tokens. */
+const MAX_SITE_MAP = 80;
+const MAX_SHOWN_LINKS = 50;
+export function siteMapFor(lines: string[], task: string): string[] {
+  const stems = new Set(
+    normalizeLiteral(task)
+      .split(" ")
+      .filter((w) => w.length >= 4)
+      .map((w) => w.slice(0, 5)),
+  );
+  const shown = lines.filter((l) => !l.endsWith("(in a closed menu)")).slice(0, MAX_SHOWN_LINKS);
+  const hidden = lines.filter((l) => {
+    if (!l.endsWith("(in a closed menu)")) return false;
+    const path = l.slice(0, l.lastIndexOf(" -> "));
+    return normalizeLiteral(path)
+      .split(" ")
+      .some((w) => w.length >= 4 && stems.has(w.slice(0, 5)));
+  });
+  return [...shown, ...hidden].slice(0, MAX_SITE_MAP);
+}
+
 /** A replan's step that would reopen the site the run is on at its home page, or the very page it is on, continues on
  * the current page instead: a new tab there throws away the filters and sort already set (runs replanned back to a
  * fresh home page). Another page of the site still opens. */
@@ -337,9 +377,256 @@ function quote(s = ""): string {
   return s.length <= 60 ? `'${s}'` : `'${s.slice(0, 40)}...' (${s.length} characters)`;
 }
 
+// --- dates (datePicker) -----------------------------------------------------------------------------------------------
+// A read-only date field (a date picker's input) is set to a date the step's texts or words name. The forms: ISO
+// yyyy-mm-dd, US m/d/yyyy (month first, as MiniWoB and US sites write it), d Month yyyy and Month d, yyyy (a month in
+// full or by its first three letters, "Sept" too).
+
+const MONTH_NAMES = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+const MONTH_WORD =
+  "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?";
+const ORDINAL = "(?:st|nd|rd|th)?";
+/** Each form, and which of its groups hold the year, the month and the day. */
+const DATE_FORMS: { re: string; y: number; m: number; d: number }[] = [
+  { re: "(\\d{4})-(\\d{1,2})-(\\d{1,2})", y: 1, m: 2, d: 3 },
+  { re: "(\\d{1,2})/(\\d{1,2})/(\\d{4})", y: 3, m: 1, d: 2 },
+  { re: `(\\d{1,2})${ORDINAL}\\s+(${MONTH_WORD}),?\\s+(\\d{4})`, y: 3, m: 2, d: 1 },
+  { re: `(${MONTH_WORD})\\s+(\\d{1,2})${ORDINAL},?\\s+(\\d{4})`, y: 3, m: 1, d: 2 },
+];
+
+/** A field a date picker sets: a read-only text box or combobox (cdp.elements() names a read-only combobox input
+ * "dropdown"; a <select> is not one). A read-only checkbox or grid is no date field. */
+export function datePickerField(e: PageEl): boolean {
+  return !!e.readOnly && !e.select && ["textbox", "combobox", "dropdown"].includes(e.role ?? "");
+}
+
+/** An element whose text a copy can carry: a text box or area (its value), or one that shows text of its own; never a
+ * select, slider or check box, which have a name but no text to copy. */
+export function copySource(e: PageEl): boolean {
+  if (e.role === "textbox" || e.textarea) return true;
+  return !!e.ownText && !e.select && !e.slider && !["checkbox", "radio", "switch", "slider"].includes(e.role ?? "");
+}
+
+/** A field text can be pasted into: one that takes typing (not a read-only date box). */
+export function editableField(e: PageEl): boolean {
+  return !e.readOnly && !e.select && (!!e.field || e.role === "textbox" || !!e.textarea);
+}
+
+/** The fields on screen a copy of source's text can go into (Tab.copyInto): every other editable one. */
+export function pasteTargets<T extends PageEl>(els: T[], source: PageEl): T[] {
+  return els.filter((e) => e.label !== source.label && editableField(e));
+}
+
+/** The elements a dragged one can be dropped onto (the drop sub-choice): every other element on screen with a box, but
+ * no canvas and no picture. MiniWoB drag-items-grid: with only names to go by, Drex dropped onto the reward panel's
+ * canvas in 3 of 8 runs, and the page scores the first drop. */
+export function dropTargets<T extends PageEl>(els: T[], source: PageEl): T[] {
+  return els.filter((e) => e.label !== source.label && !!e.box && !["canvas", "img"].includes(e.role ?? ""));
+}
+
+interface DragGrid {
+  rows: number;
+  columns: number;
+  /** every row has the same number of cells, and the grid is all on screen: its size and middle mean something */
+  regular: boolean;
+  /** each member's cell, by label */
+  cells: Map<string, { row: number; column: number }>;
+}
+
+const boxCentre = (b: Box): [number, number] => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+
+/** The grid the dragged element is a cell of, or null. Either the scan's grid of repeated controls (e.grid: same role
+ * and name, each perhaps in a wrapper of its own), or the regular grid of three or more elements it shares a parent
+ * with (BOX_FN's group), placed as the scan places repeated controls: rows by the centre's y, columns by x. A sortable
+ * list's items have different names, so the scan gives them no grid of their own. */
+function dragGrid(source: PageEl, els: PageEl[]): DragGrid | null {
+  const g = source.grid;
+  if (g) {
+    const members = els.filter(
+      (e) => e.grid && e.role === source.role && e.name === source.name && e.grid.total === g.total,
+    );
+    if (!members.some((e) => e.label === source.label)) members.push(source);
+    const rows = Math.max(...members.map((e) => e.grid?.row ?? 0)),
+      columns = Math.max(...members.map((e) => e.grid?.column ?? 0));
+    const cells = new Map(members.map((e) => [e.label, { row: e.grid?.row ?? 0, column: e.grid?.column ?? 0 }]));
+    return { rows, columns, regular: members.length === g.total && rows * columns === g.total, cells };
+  }
+  if (!source.group || !source.box) return null;
+  const members = els
+    .filter((e) => e.group === source.group && e.label !== source.label)
+    .concat(source)
+    .flatMap((e) => (e.box ? [{ e, b: e.box }] : []));
+  if (members.length < 3) return null;
+  const placed = members
+    .map(({ e, b }) => {
+      const [cx, cy] = boxCentre(b);
+      return { e, cx, cy, w: b[2] - b[0], h: b[3] - b[1] };
+    })
+    .sort((a, b) => a.cy - b.cy || a.cx - b.cx);
+  const rows: { cy: number; h: number; items: typeof placed }[] = [];
+  for (const m of placed) {
+    let row = rows.find((r) => Math.abs(r.cy - m.cy) <= Math.max(4, Math.min(r.h, m.h) * 0.4));
+    if (!row) {
+      row = { cy: m.cy, h: m.h, items: [] };
+      rows.push(row);
+    }
+    row.items.push(m);
+  }
+  rows.sort((a, b) => a.cy - b.cy);
+  for (const r of rows) r.items.sort((a, b) => a.cx - b.cx);
+  const first = rows[0]?.items ?? [];
+  const columns = first.length;
+  // a regular grid: every row as long as the first, and each column's cells one above the other
+  const aligned = rows.every(
+    (r) =>
+      r.items.length === columns &&
+      r.items.every((m, c) => {
+        const top = first[c];
+        return !!top && Math.abs(m.cx - top.cx) <= Math.max(4, Math.min(m.w, top.w) * 0.4);
+      }),
+  );
+  if (!aligned) return null;
+  const cells = new Map<string, { row: number; column: number }>();
+  rows.forEach((r, ri) => r.items.forEach((m, ci) => cells.set(m.e.label, { row: ri + 1, column: ci + 1 })));
+  return { rows: rows.length, columns, regular: true, cells };
+}
+
+/** A cell's words: "row 2, column 2 of a 3×3 grid (the centre)"; only the row and column when the grid's size is not
+ * known (some of it off screen). */
+function cellWords(grid: DragGrid, label: string): string {
+  const cell = grid.cells.get(label);
+  if (!cell) return "";
+  const at = `row ${cell.row}, column ${cell.column}`;
+  if (!grid.regular) return at;
+  const middle =
+    grid.rows % 2 === 1 &&
+    grid.columns % 2 === 1 &&
+    cell.row === (grid.rows + 1) / 2 &&
+    cell.column === (grid.columns + 1) / 2;
+  return `${at} of a ${grid.rows}×${grid.columns} grid${middle ? " (the centre)" : ""}`;
+}
+
+/** Where a drop target is, from the dragged element: its cell when both are cells of one grid (dragGrid), otherwise
+ * the dominant direction and the distance between the two boxes' centres ("to the right, 120 px", "below, 40 px").
+ * Then what it is (describe), so names still tell targets apart. MiniWoB drag-items-grid ("Drag Jinny to the
+ * center."): by name alone Drex picked the centre cell in 3 of 8 runs. */
+export function dropTargetDescription(source: PageEl, target: PageEl, els: PageEl[]): string {
+  const what = describe(target);
+  const grid = dragGrid(source, els);
+  const cell = grid ? cellWords(grid, target.label) : "";
+  if (cell) return `${cell}: ${what}`;
+  if (!source.box || !target.box) return what;
+  const [sx, sy] = boxCentre(source.box),
+    [tx, ty] = boxCentre(target.box);
+  const dx = tx - sx,
+    dy = ty - sy;
+  const far = Math.round(Math.max(Math.abs(dx), Math.abs(dy)));
+  const where = !far
+    ? "at the same place"
+    : Math.abs(dx) >= Math.abs(dy)
+      ? `to the ${dx > 0 ? "right" : "left"}, ${far} px`
+      : `${dy > 0 ? "below" : "above"}, ${far} px`;
+  return `${where}: ${what}`;
+}
+
+/** The drop sub-choice's question: where the dragged element itself is, the anchor for its options' wording. */
+export function dropInstructions(source: PageEl, els: PageEl[]): string {
+  const grid = dragGrid(source, els);
+  const cell = grid ? cellWords(grid, source.label) : "";
+  if (cell)
+    return `Drop it onto which element? The element you drag is at ${cell}. Each option starts with where that element is: its cell in that grid, or its direction and distance from the element you drag.`;
+  const [x, y] = source.box ? boxCentre(source.box).map(Math.round) : [];
+  const at = source.box ? ` The element you drag is centred at x ${x}, y ${y} on screen.` : "";
+  return `Drop it onto which element?${at} Each option starts with that element's direction and distance from the element you drag.`;
+}
+
+export interface CalendarDate {
+  y: number;
+  m: number;
+  d: number;
+}
+
+/** The date a form's match names; null for a day the month doesn't have (02/30/2016) or a 13th month. */
+function dateOf(found: RegExpExecArray, form: (typeof DATE_FORMS)[number]): CalendarDate | null {
+  const y = Number(found[form.y]),
+    d = Number(found[form.d]);
+  const month = found[form.m] ?? "";
+  const m = /^\d+$/.test(month)
+    ? Number(month)
+    : MONTH_NAMES.findIndex((n) => n.startsWith(month.slice(0, 3).toLowerCase())) + 1;
+  if (m < 1 || m > 12 || d < 1 || d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null;
+  return { y, m, d };
+}
+
+/** The date a text is, in one of the forms above (the whole text, a closing full stop aside); null for any other
+ * text. "04/08/2016" is April 8. */
+export function parseDate(text: string): CalendarDate | null {
+  const t = text.trim().replace(/\.$/, "");
+  for (const form of DATE_FORMS) {
+    const found = new RegExp(`^${form.re}$`, "i").exec(t);
+    if (found) return dateOf(found, form);
+  }
+  return null;
+}
+
+/** The dates written in a text, in the order they appear. */
+function datesIn(text = ""): { token: string; date: CalendarDate; at: number }[] {
+  const out: { token: string; date: CalendarDate; at: number }[] = [];
+  for (const form of DATE_FORMS)
+    for (const found of text.matchAll(new RegExp(`(?<![\\w/-])${form.re}(?![\\w/-])`, "gi"))) {
+      const date = dateOf(found, form);
+      if (date) out.push({ token: found[0], date, at: found.index });
+    }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/** The date a step sets a date field to: its first text that is a date; else the one date its goal names, else its
+ * done_when, else the task (the first of them that names any). One that names two different dates gives none: the
+ * plan must say which (the same date twice, in any form, is one date). */
+export function stepDate(step: Step, task: string): string | null {
+  for (const t of step.texts ?? []) if (parseDate(t.text)) return t.text;
+  for (const words of [step.goal, step.done_when, task]) {
+    const found = datesIn(words);
+    if (!found.length) continue;
+    const distinct = new Set(found.map(({ date }) => `${date.y}-${date.m}-${date.d}`));
+    return distinct.size === 1 ? (found[0]?.token ?? null) : null;
+  }
+  return null;
+}
+
 /** Every move Drex can make on this screen: {key: description} for Drex, {key: action} for the extension.
  * direct (no LLM plan): Drex has no texts of its own, so every field gets a "type into" move the LLM writes the text
- * for; and Drex can ask the LLM whether the task is finished. */
+ * for; and Drex can ask the LLM whether the task is finished. dragTo (the switch of that name) with dragHint (the step
+ * or task speaks of dragging, dropping, moving or sorting): an element marked to be dragged gets a drag move, whose
+ * drop target is Drex's next choice. datePicker (the switch of that name): a read-only text box or combobox (a date
+ * picker's input: datePickerField) gets a "type" move for each text that is a date, and for each of dateTexts (the
+ * date the step's words name when none of its texts is one: offered on those fields only). copyMove (the switch of that name) with copyHint (the step or task says copy, paste or duplicate):
+ * an element with text to copy gets a copy move, whose field to paste into is Drex's next choice. */
+/** longSelects: the options of a long list that the step or task names, as whole words (case and accents aside), at
+ * most MAX_NAMED_OPTIONS; a longer option first, so "New York" wins over "York". */
+const MAX_NAMED_OPTIONS = 8;
+export function namedOptions(options: string[], wanted: string): Set<number> {
+  const text = ` ${normalizeLiteral(wanted)} `;
+  const hits = options
+    .map((o, j) => ({ j, n: normalizeLiteral(o) }))
+    .filter(({ n }) => n.length >= 2 && text.includes(` ${n} `))
+    .sort((a, b) => b.n.length - a.n.length);
+  return new Set(hits.slice(0, MAX_NAMED_OPTIONS).map((h) => h.j));
+}
+
 export function buildOptions({
   els = [],
   off = [],
@@ -347,6 +634,13 @@ export function buildOptions({
   tabs = [],
   direct = false,
   sliderValues = [],
+  dragTo = false,
+  dragHint = false,
+  datePicker = false,
+  dateTexts = [],
+  copyMove = false,
+  copyHint = false,
+  wanted = "",
 }: {
   els?: LocatedEl[];
   off?: LocatedEl[];
@@ -354,6 +648,14 @@ export function buildOptions({
   tabs?: TabInfo[];
   direct?: boolean;
   sliderValues?: number[];
+  dragTo?: boolean;
+  dragHint?: boolean;
+  datePicker?: boolean;
+  dateTexts?: StepText[];
+  copyMove?: boolean;
+  copyHint?: boolean;
+  /** longSelects: what the step and task say (goal, done_when, texts, task): a long list offers the options it names */
+  wanted?: string;
 }): Options {
   const opts: Record<string, string> = {};
   const acts: Record<string, MoveOption> = {};
@@ -362,6 +664,7 @@ export function buildOptions({
     opts[k] = desc;
     acts[k] = act;
   };
+  const dates = datePicker ? [...texts, ...dateTexts].filter((t) => parseDate(t.text)) : [];
   for (const e of els) {
     if (e.role === "canvas") {
       add(
@@ -396,8 +699,10 @@ export function buildOptions({
           );
         }
     } else if (e.select && e.options) {
+      const named = e.longList ? namedOptions(e.options, wanted) : null;
       e.options.forEach((name, j) => {
-        if (j === e.selectedIndex || !name) return;
+        if (!name || (e.multiple ? e.selectedOptions?.includes(name) : j === e.selectedIndex)) return;
+        if (named && !named.has(j)) return;
         add(`choose '${name.slice(0, 40)}' in ${e.label}`, `In ${describe(e)}, choose the option '${name}'`, {
           kind: "select",
           el: e,
@@ -429,6 +734,14 @@ export function buildOptions({
         );
       add(`click ${e.label}`, `Click ${describe(e)}`, { kind: "click", el: e });
     } else {
+      // a read-only field takes no typing: the move picks the date in what the field opens (Agent.perform)
+      if (datePickerField(e))
+        for (const t of dates)
+          add(`type ${t.name} into ${e.label}`, `Set ${describe(e)} to ${preview(t)}, picked in its calendar`, {
+            kind: "type",
+            el: e,
+            text: t,
+          });
       if (e.submenu)
         add(
           `hover ${e.label}`,
@@ -440,6 +753,19 @@ export function buildOptions({
         );
       add(`click ${e.label}`, `Click ${describe(e)}`, { kind: "click", el: e });
     }
+    // only when the step speaks of dragging (a drag library marks every card or row of a board, list or file manager
+    // draggable), only on screen, and only with something on screen to drop it onto (no canvas or picture: dropTargets)
+    if (dragTo && dragHint && e.draggable && dropTargets(els, e).length)
+      add(`drag ${e.label}`, `Drag ${describe(e)} and drop it onto another element (you choose which next)`, {
+        kind: "drag_pick",
+        el: e,
+      });
+    // only when the step speaks of copying, and a field other than the source is there to paste into
+    if (copyMove && copyHint && copySource(e) && pasteTargets(els, e).length)
+      add(`copy the text of ${e.label}`, `Copy the text of ${describe(e)} into a field (you choose which next)`, {
+        kind: "copy_pick",
+        el: e,
+      });
   }
   for (const e of [...els, ...off])
     if (e.paginationURL) {
@@ -731,8 +1057,13 @@ export function isRisky(act: MoveOption): boolean {
 
 /** A double-click, a drag or a key chord has no control name to check against RISKY, so with approvals on it is asked
  * about like a risky click. A hover changes nothing. A click at a screen point is judged by what is under it instead
- * (pointRisk). */
+ * (pointRisk). A drag of one element onto another asks like a drag, unless it drags a slider (sliderValueDrag). */
 export function isRiskyGesture(act: MoveOption): boolean {
+  if (act.kind === "drag_to") {
+    const { role, slider, name, text } = act.el;
+    const n = name ?? text;
+    return !((role === "slider" || !!slider) && !riskyName(n) && !SLIDE_TO_ACT.test(n));
+  }
   return act.kind === "point" || (act.kind === "gesture" && act.gesture?.kind !== "hover");
 }
 
@@ -851,6 +1182,7 @@ export function actionIdentity(act: MoveActFields, text: string | null | undefin
     act.tab?.url,
     act.x,
     act.y,
+    act.to?.node, // a drag onto another target is another move
   ]);
 }
 
@@ -869,9 +1201,9 @@ export function similarScreens(
   return union === 0 || shared / union >= min;
 }
 
-/** The circle the last moves went round, or null: the last k moves (k = 2..4) repeat the k before them, from the
+/** The circle the last moves went round, or null: the last k moves (k = 2..9; a search, sort and filter circle ran 7) repeat the k before them, from the
  * same screens; a single move needs three rounds. Only moves after the last loop marker count. */
-export function findLoop(history: HistoryEntry[], maxPeriod = 4): { period: number; moves: string[] } | null {
+export function findLoop(history: HistoryEntry[], maxPeriod = 9): { period: number; moves: string[] } | null {
   const since = history.findLastIndex((h) => h.marker);
   const h = history.slice(since + 1).filter((m): m is MoveRecord => !m.marker);
   for (let k = 1; k <= maxPeriod; k++) {
@@ -915,6 +1247,7 @@ interface MoveActFields {
   tab?: TabInfo;
   x?: number;
   y?: number;
+  to?: PageEl;
 }
 interface PageNotes {
   dialogs: string[];
@@ -940,13 +1273,20 @@ export function withoutMoves({ opts, acts }: Options, paused: Set<string>): Opti
 export const STALL_MOVES = 3;
 export function stallReason(all: HistoryEntry[], what: string): string {
   const history = all.filter((h) => !h.marker);
-  const recent = history.slice(-6);
-  if (recent.some((h) => h.what === what && !h.changed))
-    return `Drex is about to repeat '${what}', which changed nothing earlier.`;
+  if (deadBefore(all, what)) return `Drex is about to repeat '${what}', which changed nothing earlier.`;
   const last = history.slice(-STALL_MOVES);
   if (last.length === STALL_MOVES && last.every((h) => !h.changed))
     return `Drex's last ${STALL_MOVES} moves changed nothing on screen.`;
   return "";
+}
+
+/** The same move was made among the last 6 and changed nothing: stallReason's first test, alone (a drag's pairs are
+ * judged one by one with it). */
+export function deadBefore(all: HistoryEntry[], what: string): boolean {
+  return all
+    .filter((h) => !h.marker)
+    .slice(-6)
+    .some((h) => h.what === what && !h.changed);
 }
 
 export function whatOf(act: MoveOption, text?: string): string {
@@ -965,6 +1305,8 @@ export function whatOf(act: MoveOption, text?: string): string {
       return `scrolled to ${act.el.text}${act.el.context ? ` (in "${act.el.context}")` : ""}`;
     case "type":
     case "type_pick":
+      // a read-only field is set through its calendar, all in this one move (datePicker)
+      if (datePickerField(act.el)) return `set ${act.el.label} to ${text ?? act.text?.text ?? ""}`;
       return `typed ${quote(text)} into ${act.el.text}`;
     case "type_cursor":
       return `typed ${quote(text)} at the cursor`;
@@ -988,6 +1330,14 @@ export function whatOf(act: MoveOption, text?: string): string {
       return `switched to the tab '${act.tab.title}'`;
     case "point":
       return `clicked at (${Math.round(act.x)}, ${Math.round(act.y)})`;
+    case "drag_pick":
+      return `drag ${act.el.label} (${act.el.text})`; // before Drex chose where it goes
+    case "copy_pick":
+      return `copy the text of ${act.el.label} (${act.el.text})`; // before Drex chose the field
+    case "copy_to":
+      return `copied ${act.el.label} (${act.el.text}) into ${act.to.label} (${act.to.text})`;
+    case "drag_to":
+      return `dragged ${act.el.label} (${act.el.text}) onto ${act.to.label} (${act.to.text})`;
     default:
       return act.kind;
   }
@@ -1097,6 +1447,14 @@ export function applyReplan(steps: Step[], index: number, newSteps: Step[]): Ste
  * the shape of each item of a list ("return a list, each a JSON object {...}") is not the answer's own shape.
  */
 export function requiredFields(task: string): string[] {
+  const shape = answerShape(task);
+  const keys = shape ? [...shape.matchAll(/"([A-Za-z_][\w-]*)"\s*:/g)].flatMap((m) => (m[1] ? [m[1]] : [])) : [];
+  return keys.length >= 2 ? [...new Set(keys)] : [];
+}
+
+/** The answer object a task spells out, between its braces: undefined when it only says JSON, or the object is each
+ * item of a list (requiredFields). */
+function answerShape(task: string): string | undefined {
   const m =
     /\b(return|answer|respond|reply|output)\b([^.{]{0,80})\bJSON object(?!s)([^{]{0,200})\{([^{}]{0,800})\}([^.{]{0,80})/i.exec(
       task,
@@ -1104,9 +1462,77 @@ export function requiredFields(task: string): string[] {
   // list wording around the object ("a list, each a JSON object {...}", "a JSON object per order: {...}", "a JSON
   // object {...} for each product")
   const around = `${m?.[2] ?? ""} ${m?.[3] ?? ""} ${m?.[5] ?? ""}`;
-  const shape = m && !/\b(list|array|each|every|per)\b/i.test(around) ? m[4] : undefined;
-  const keys = shape ? [...shape.matchAll(/"([A-Za-z_][\w-]*)"\s*:/g)].flatMap((m) => (m[1] ? [m[1]] : [])) : [];
-  return keys.length >= 2 ? [...new Set(keys)] : [];
+  return m && !/\b(list|array|each|every|per)\b/i.test(around) ? m[4] : undefined;
+}
+
+/** confirmedChanges: the failure values the status field of a task's answer object allows ("status": "SUCCESS" |
+ * "NOT_FOUND_ERROR" | "DATA_VALIDATION_ERROR"...); none when the task spells out no object with a status. */
+export function errorStatuses(task: string): string[] {
+  const values = /"status"\s*:\s*((?:"[^"]*"\s*\|?\s*)+)/i.exec(answerShape(task) ?? "")?.[1] ?? "";
+  return [...values.matchAll(/"([^"]*)"/g)].flatMap((m) =>
+    m[1] && /error|fail|denied|not_found/i.test(m[1]) ? [m[1]] : [],
+  );
+}
+
+// confirmedChanges: what makes a step one that changes something on the site. Its goal's first word is a mutation
+// ("Post a comment", "Click Save"); a goal that starts by going somewhere or reading ("Open the merge requests page")
+// changes something only when its done_when says so; any other goal by a mutation verb in it or its done_when. Words
+// that are often nouns (post, comment, order, merge, register, sign up, log in) count only as first words; check
+// counts only as "check out" (or "checkout").
+const MUTATION_FIRST =
+  /^(save|submit|add|create|update|delete|remove|post|reply|comment|upvote|downvote|vote|subscribe|unsubscribe|change|edit|rename|set|apply|enable|disable|toggle|select|choose|cancel|approve|reject|assign|merge|close|reopen|publish|send|buy|order|check\s*out|place|pay|register|sign up|log in|login)\b/i;
+const NAVIGATION_FIRST =
+  /^(open|go|navigate|visit|find|view|look|read|search|browse|list|locate|show|see|scroll|switch|return|back|identify|note|record|collect|count|compare|determine|report|extract|gather|get)\b/i;
+const MUTATION_VERB =
+  /\b(save|submit|add|create|update|delete|remove|reply|upvote|downvote|vote|subscribe|unsubscribe|change|edit|rename|set|apply|enable|disable|toggle|select|choose|cancel|approve|reject|assign|close|reopen|publish|send|buy|check\s*out|place|pay)(s|d|ed|ing)?\b/i;
+
+/** confirmedChanges: a step meant to change something ("Save the rule"), whose clicks' site answers are the run's
+ * changes. A step that opens or finds a page ("Open the merge requests page") makes none: the requests its clicks bring
+ * (a GraphQL read, a shipping estimate) are not the task's change. */
+export function isMutatingStep(step: Pick<Step, "goal" | "done_when">): boolean {
+  const goal = (step.goal ?? "").trim();
+  const doneWhen = (step.done_when ?? "").trim();
+  // the first word after a leading "then", "now", "also" or "please", and a "click"
+  const first = goal.replace(/^((then|now|also|please)\b[\s,]*)*/i, "").replace(/^click\b\s*/i, "");
+  if (MUTATION_FIRST.test(first)) return true;
+  if (NAVIGATION_FIRST.test(first)) return MUTATION_VERB.test(doneWhen);
+  return MUTATION_VERB.test(goal) || MUTATION_VERB.test(doneWhen);
+}
+
+/** confirmedChanges: the plan's last mutating step, the last browse or fill step (a step of no known kind runs as a
+ * browse step) that changes something (isMutatingStep), when a confirmed change was made for it (by its goal); null when
+ * there is none or it has none. The last change the task asks for decides, whether or not the run got to it: an
+ * add-to-cart confirmed before an order the run never placed is not the task's last change (ruling 14). A list's paging
+ * (collect) and a batch's items are not the task's change. */
+export function lastMutatingStep(
+  plan: { steps: Pick<Step, "kind" | "goal" | "done_when">[] },
+  confirmations: { step: string }[],
+): number | null {
+  const goals = new Set(confirmations.map((c) => c.step));
+  for (let i = plan.steps.length - 1; i >= 0; i--) {
+    const s = plan.steps[i];
+    const browse = !["read", "look", "verify", "collect", "batch"].includes(String(s?.kind));
+    if (s && browse && isMutatingStep(s)) return s.goal !== undefined && goals.has(s.goal) ? i : null;
+  }
+  return null;
+}
+
+/** confirmedChanges: the confirmed changes an answer's error status is asked about again for (Agent.changeRefusal):
+ * those of the plan's last mutating step (lastMutatingStep), when no change was rejected after the last of them; none
+ * otherwise. On a step that also sets something (isSettingStep: "Apply the Legal filter") a change counts only by a
+ * form post that navigated or a PUT, PATCH or DELETE (`strong`) or a success notice: the POST a single-page app's
+ * search sends is no change the task made (ruling 15). The record the final answer reads keeps them all. */
+export function refusalChanges<C extends { step: string; notices: string[]; rejected: boolean; strong?: boolean }>(
+  plan: { steps: Pick<Step, "kind" | "goal" | "done_when">[] },
+  changes: C[],
+): C[] {
+  const setting = new Set(plan.steps.filter((s) => isSettingStep(s)).map((s) => s.goal));
+  const counts = (c: C) => !c.rejected && (!setting.has(c.step) || !!c.strong || c.notices.length > 0);
+  const at = lastMutatingStep(plan, changes.filter(counts));
+  const goal = at === null ? undefined : plan.steps[at]?.goal;
+  const cited = changes.filter((c) => counts(c) && c.step === goal);
+  const last = cited.at(-1);
+  return last && !changes.slice(changes.indexOf(last) + 1).some((c) => c.rejected) ? cited : [];
 }
 
 /**
@@ -1125,4 +1551,159 @@ export function inFormat(text: string, task: string): boolean {
   const fields = requiredFields(task);
   if (!fields.length) return true;
   return !!value && typeof value === "object" && !Array.isArray(value) && fields.every((f) => Object.hasOwn(value, f));
+}
+
+// --- settingReadback: the values a setting step sets, as the page read-back looks for them ---------------------------
+/** A setting's value as the read-back compares it, in the step and on the page alike: lower case, "&" as "and", every
+ * punctuation mark or symbol a space ("Full-time" is "full time", "$25" is "25"), spacing collapsed. It uses nothing
+ * from outside itself: the page script runs this same function (cdp.ts READBACK_FN). */
+export function normalizeLiteral(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const SETTING_VERB = /\b(sort|filter|select|choose|set|enter|type|pick|apply|check|toggle|switch|narrow)\b/i;
+/** settingReadback: a browse or fill step (a step of no known kind runs as browse) that sets something on the page: a
+ * filter, a sort, an option or a typed value, by a setting verb in its goal or done_when. "Open the Reviews tab" or
+ * "Click See 12 Homes" sets nothing. */
+export function isSettingStep(step: Pick<Step, "kind" | "goal" | "done_when">): boolean {
+  const browse = !["read", "look", "verify", "collect", "batch"].includes(String(step.kind));
+  return browse && (SETTING_VERB.test(step.goal ?? "") || SETTING_VERB.test(step.done_when ?? ""));
+}
+
+// a value in quotes: "...", “...” or '...'. A quote opens at a word start (the start of the text, white space or an
+// opening bracket before it) and closes at a word end (no letter or digit after it); an apostrophe inside a word
+// ("site's", "Women's") opens and closes nothing, and the quoted text may hold one.
+const QUOTED = /(?<![^\s([{])(?:"([^"\n]+)"|“([^”\n]+)”|'((?:[^'\n]|(?<=\p{L})'(?=\p{L}))+)')(?![\p{L}\p{N}])/gu;
+export const MAX_QUOTED_CHARS = 60;
+export const MAX_QUOTED_WORDS = 8;
+// what an agent's own move log says ("pointed at menuitem"): never a value on a page
+const MOVE_LOG = /^(?:clicked|pointed at|scrolled to|adjusted|opened pagination link)\b/i;
+
+/** Every string quoted in a text, whole: the revealEvidence read keeps a quoted sentence (the notice it must find). */
+export function quotedStrings(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(QUOTED)) {
+    const v = (m[1] ?? m[2] ?? m[3] ?? "").replace(/\s+/g, " ").trim();
+    if (v) out.push(v);
+  }
+  return out;
+}
+
+/** The values quoted in a setting step's text: a value is short (at most 60 characters and 8 words) and holds no
+ * sentence end (a full sentence in quotes is a message or an instruction, not a value), and is no line of the agent's
+ * own move log. */
+export function quotedValues(text: string): string[] {
+  return quotedStrings(text).filter(
+    (v) =>
+      v.length <= MAX_QUOTED_CHARS &&
+      v.split(" ").length <= MAX_QUOTED_WORDS &&
+      !/[.!?](?:\s|$)/.test(v) &&
+      !MOVE_LOG.test(v),
+  );
+}
+
+// a number with a unit or currency next to it: a currency sign before it ($25), a unit or measure word right after it
+// (12 pairs, 2-bedroom, 50%, 3 nights: a generic list, so "the top 3 results" or "See 12 Homes" holds no value), or a
+// thousands separator or a decimal point in it (4,000, 3.5)
+const UNIT_NUMBER =
+  /[$€£¥]\s?\d+(?:,\d{3})*(?:\.\d+)?|\b\d+(?:,\d{3})*(?:\.\d+)?(?:\s|-)?(?:%|°|(?:percent|km\/h|kmh|km|mi|miles?|mph|m|cm|mm|ft|feet|in(?:ch(?:es)?)?|kg|g|lbs?|oz|l|ml|gal|h|hrs?|hours?|min|mins|minutes?|sec|s|days?|nights?|weeks?|months?|years?|yrs?|stars?|bed(?:room)?s?|baths?|bathrooms?|br|ba|pairs?|pcs?|pieces?|packs?|guests?|adults?|children|kids?|people|persons?|seats?|rooms?|gb|tb|mb|mp|mah|w|kw|v|x)\b)|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+\.\d+\b/gi;
+const NOTE_REF = /\{\{\s*[\w-]+\s*\}\}/;
+export const MAX_SETTING_LITERALS = 6;
+
+/** settingReadback: the values a setting step means the page to show applied: its texts, the values quoted in its goal
+ * and done_when, and the numbers with a unit or currency there, in that order, none twice once normalised, at most
+ * MAX_SETTING_LITERALS. Not a value: the name of a control clicked in the step (that was an action), a text that still
+ * names a note ({{note1}}), the whole task quoted, or a number that is part of a value kept or a control clicked. */
+export function settingLiterals(
+  step: Pick<Step, "texts" | "goal" | "done_when">,
+  clickedNames: string[],
+  task: string,
+): string[] {
+  const clicked = clickedNames.map(normalizeLiteral).filter(Boolean);
+  const whole = normalizeLiteral(task);
+  const kept: string[] = [];
+  const seen: string[] = [];
+  const within = (part: string, of: string) => ` ${of} `.includes(` ${part} `);
+  const add = (raw: string | undefined, number = false) => {
+    const value = (raw ?? "").replace(/\s+/g, " ").trim();
+    const n = normalizeLiteral(value);
+    if (!n || NOTE_REF.test(value) || n === whole || seen.includes(n) || clicked.includes(n)) return;
+    if (number && [...seen, ...clicked].some((v) => within(n, v))) return;
+    seen.push(n);
+    kept.push(value);
+  };
+  const said = [step.goal ?? "", step.done_when ?? ""];
+  for (const t of step.texts ?? []) add(t.text);
+  // a quoted value is a value, not the instruction: one that is (most of) the goal or done_when sentence is dropped
+  // (the sentence it is quoted in, whole, or a slice of four words or more that is more than half of it)
+  const instruction = (v: string, from: string) => {
+    const n = normalizeLiteral(v);
+    const x = normalizeLiteral(from);
+    return x === n || (n.split(" ").length >= 4 && x.includes(n) && n.length * 2 > x.length);
+  };
+  for (const s of said) for (const v of quotedValues(s)) if (!instruction(v, s)) add(v);
+  // a number inside a quoted value is that value's, not one of its own
+  for (const s of said) for (const m of s.replace(QUOTED, " ").matchAll(UNIT_NUMBER)) add(m[0], true);
+  return kept.slice(0, MAX_SETTING_LITERALS);
+}
+
+/** settingReadback: the value a move sets, if it sets one: the text it typed, the option it selected, or the name of
+ * the checkbox, radio, option, switch or tab it clicked. A button or link clicked names an action, not a value. */
+const VALUE_ROLES = new Set([
+  "checkbox",
+  "radio",
+  "option",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "switch",
+  "tab",
+  "treeitem",
+]);
+export function chosenValue(act: MoveOption, text: string | null | undefined): string {
+  if (["type", "type_pick", "type_cursor", "write"].includes(act.kind)) return (text ?? act.text?.text ?? "").trim();
+  if (act.kind === "select") return act.value.trim();
+  if ((act.kind === "click" || act.kind === "scroll_click") && VALUE_ROLES.has(String(act.el.role)))
+    return (act.el.name || act.el.text).trim();
+  return "";
+}
+
+/** settingReadback: the step's values (settingLiterals) that a move in the step set (chosenValue): a value counts when
+ * one holds the other as whole words ("Remote" and the checkbox "Remote (12)", "2" and the typed "2 adults"). */
+export function chosenLiterals(literals: string[], chosen: string[]): string[] {
+  const set = chosen.map(normalizeLiteral).filter(Boolean);
+  const within = (a: string, b: string) => ` ${b} `.includes(` ${a} `);
+  return literals.filter((l) => {
+    const n = normalizeLiteral(l);
+    return !!n && set.some((v) => within(n, v) || within(v, n));
+  });
+}
+
+// --- revealEvidence: the facts the end of a run shows on screen -------------------------------------------------------
+export const MAX_REVEAL_LITERALS = 8;
+
+/** revealEvidence: what the end of a run looks for on the page, first to last: the values the final read's evidence
+ * quotes, its numbers with a unit or currency (settingLiterals' rule), then its answerTokens amounts and numbers (its
+ * quoted names come from the quote rule above, which reads an apostrophe as no quote); none twice once normalised, at
+ * most MAX_REVEAL_LITERALS. Evidence naming none of those leaves the answer's own tokens (answerTokens), as before. No
+ * capitalised names: the reveal diagnostic found them on screen already, where they only stop the scroll. */
+export function revealLiterals(evidence: string | null | undefined, answer: string | null | undefined): string[] {
+  const text = evidence ?? "";
+  const kept: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string | undefined) => {
+    const value = (raw ?? "").replace(/\s+/g, " ").trim();
+    const n = normalizeLiteral(value);
+    if (n.length < 2 || seen.has(n)) return;
+    seen.add(n);
+    kept.push(value);
+  };
+  for (const v of quotedStrings(text)) add(v);
+  for (const m of text.matchAll(UNIT_NUMBER)) add(m[0]);
+  for (const t of answerTokens(text)) if (/\d/.test(t)) add(t);
+  return kept.length ? kept.slice(0, MAX_REVEAL_LITERALS) : answerTokens(answer);
 }

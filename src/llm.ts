@@ -6,7 +6,7 @@ import { CATALOG, DEFAULT_MODEL, PRICES, providerOf } from "./models.ts";
 import { countInput, maxInputTokens, send } from "./providers.ts";
 import { RunBudget, RunLimit } from "./run-budget.ts";
 import { costOn, costValue } from "./cost.ts";
-import { ANSWER_RULES, accOn } from "./accuracy.ts";
+import { ANSWER_RULES, CHANGE_RULE, accOn } from "./accuracy.ts";
 import { taskForMoves } from "./logic.ts";
 import type {
   Accounting,
@@ -118,7 +118,9 @@ const PLAN_SCHEMA = {
 // finish (also no plan) adds "finished", for when the user's whole task is done.
 // why comes first, so the reasoning is written before the decision: with it last, Haiku chose Place Order and then
 // wrote "the burger is missing, better to go back to the store first".
-const rescueSchema = (keys: string[], replan = true, finish = false) => ({
+// dragTo (the switch of that name, from the agent) adds the drag_to gesture: from and to are the tags of the element
+// dragged and of the one it is dropped onto, "" for the other gestures (the schema is strict: every field is required).
+const rescueSchema = (keys: string[], replan = true, finish = false, dragTo = false) => ({
   type: "object",
   properties: {
     why: { type: "string" },
@@ -142,7 +144,7 @@ const rescueSchema = (keys: string[], replan = true, finish = false) => ({
     gesture: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["hover", "double_click", "drag", "keychord"] },
+        kind: { type: "string", enum: ["hover", "double_click", "drag", "keychord", ...(dragTo ? ["drag_to"] : [])] },
         endX: { type: "number" },
         endY: { type: "number" },
         key: {
@@ -166,11 +168,15 @@ const rescueSchema = (keys: string[], replan = true, finish = false) => ({
             "a",
             "z",
             "y",
+            "c",
+            "v",
+            "x",
           ],
         },
         modifiers: { type: "array", items: { type: "string", enum: ["Shift", "Control", "Meta"] } },
+        ...(dragTo ? { from: { type: "string" }, to: { type: "string" } } : {}),
       },
-      required: ["kind", "endX", "endY", "key", "modifiers"],
+      required: ["kind", "endX", "endY", "key", "modifiers", ...(dragTo ? ["from", "to"] : [])],
       additionalProperties: false,
     },
     ...(replan ? { new_steps: { type: "array", items: STEP } } : {}),
@@ -178,6 +184,10 @@ const rescueSchema = (keys: string[], replan = true, finish = false) => ({
   required: ["why", "user_need", "decision", "option", "text", "x", "y", "gesture", ...(replan ? ["new_steps"] : [])],
   additionalProperties: false,
 });
+
+/** navMap: how the planner uses the active site's own navigation. */
+const SITE_MAP_RULE =
+  "SITE MAP (site_map) lists the links the active site's own menus, header, side bar and footer offer, as 'menu path -> address'; one marked (in a closed menu) sits inside a menu that opens on hover or click. When the page the task needs is in the map, open it by that exact address (open_url, on the same origin as the active tab) or reach it through its menu path; pick the entry whose path matches the task's section, not just a similar word. The map lists only the site's menus: a page it doesn't list (a user's, an item's, a search result) is reached as you would without it.";
 
 const PLAN_SYSTEM = `Plan 1–8 steps for a browser agent in the user's signed-in Chrome. Follow the ORIGINAL USER TASK; never add goals or weaken its conditions. ${PAGE_SAFETY}
 
@@ -245,12 +255,15 @@ const REPLAN_LINE = `- "replan": the current step is wrong for what is on screen
 
 const FINISHED_LINE = `- "finished": the user's whole task is done on screen and nothing is left to do; why says what on screen shows it.\n`;
 
+const DRAG_TO_LINE = ` drag_to drags a tagged element onto another: gesture.from is the tag (E#) of the element to drag and gesture.to the tag of the one to drop it onto; when both are tagged, use it rather than a drag by pixels.`;
+
 const rescueSystem = (
   replan: boolean,
   finish: boolean,
+  dragTo = false,
 ) => `You help Drex, a fast decision model that works a browser by picking one move at a time from a list. Drex is unsure right now (the reason is given). Look at the screenshot (usable elements are boxed and tagged E1, E2, ...), the step, the recent moves and the list of moves, and decide:
 - "move": the best next move; option is its exact key from the list (only listed moves exist; a tag that is not in the list is not on screen). If the move types text and none of the listed texts fits, put the text to type in text. With a "click E#" move on a text field, text is typed into that field after the click.
-- "gesture": hover/double_click at x,y, or drag from x,y to gesture.endX,endY, using original screenshot pixel coordinates. keychord uses gesture.key/modifiers for page interactions; never browser/global shortcuts. Pointer gestures use no modifiers. a/z/y require Control or Meta, never both; Control/Meta only with a,z,y, arrows, Home, End, Backspace, Delete. Hover can reveal menus; double-click edits; drag moves a visible object. Use only when requested/necessary and ordinary options cannot express the action. Other decisions set an unused gesture object (hover, zeros, empty key/modifiers).
+- "gesture": hover/double_click at x,y, or drag from x,y to gesture.endX,endY, using original screenshot pixel coordinates. keychord uses gesture.key/modifiers for page interactions; never browser/global shortcuts. Pointer gestures use no modifiers. a/z/y/c/v/x require Control or Meta, never both; Control/Meta only with a,z,y,c,v,x, arrows, Home, End, Backspace, Delete. Hover can reveal menus; double-click edits; drag moves a visible object.${dragTo ? DRAG_TO_LINE : ""} Use only when requested/necessary and ordinary options cannot express the action. Other decisions set an unused gesture object (hover, zeros, empty key/${dragTo ? "from/to/" : ""}modifiers).
 - "click_point": what must be clicked has no tag (it is not boxed, or no move names it); x and y are its pixel position in the screenshot (option ""). Prefer this over keyboard moves that already changed nothing.
 ${replan ? REPLAN_LINE : ""}${finish ? FINISHED_LINE : ""}- "ask_user": a CAPTCHA, a login or a payment detail is visibly required, or a choice only the user can make (which of their saved addresses or cards, whether to accept a changed price, something the task leaves open that matters to them); set user_need to captcha/login/payment/choice; why says what, in one sentence addressed to the user.
 - "give_up": the task cannot be done here; why says why.
@@ -286,6 +299,16 @@ const focusMetadata = (focus: FocusedEvidence | null) => {
       "Image 2 enlarges this public interaction region of Image 1. It is the same page, not a new state. Use for fine visual details; original image retains full context.",
   };
 };
+/** confirmedChanges: the notes hold the run's record of the changes it made, so the final answer gets the rule for it. */
+const recordsChanges = (notes: unknown): boolean =>
+  !!notes &&
+  typeof notes === "object" &&
+  (Object.hasOwn(notes, "confirmed_changes") || Object.hasOwn(notes, "rejected_changes"));
+/** settingReadback: the notes hold the settings the run never saw applied, so the final read gets the rule for them. */
+const unverifiedSettings = (notes: unknown): boolean =>
+  !!notes && typeof notes === "object" && Object.hasOwn(notes, "unverified_settings");
+const UNVERIFIED_RULE =
+  "The notes' unverified_settings are values the run set (a filter, a sort, an option, a typed value) that were never seen applied on the page: check each one on the page before you write the answer.";
 function compactObservations(observations: unknown): unknown {
   const counts = new Map<string, number>();
   const eligible = (v: unknown): boolean => (typeof v === "string" && v.length > 120) || Array.isArray(v);
@@ -986,11 +1009,14 @@ export class LLM {
     tabs,
     today,
     sites = [],
+    siteMap = [],
   }: {
     task: string;
     tabs: PlanTab[];
     today: string;
     sites?: Site[];
+    /** navMap: the active page's own navigation links (Tab.navMap) */
+    siteMap?: string[];
   }): Promise<LlmResult<PlanJson>> {
     const tabList =
       tabs.map((t, i) => `${i}. "${String(t.title)}" ${t.url}${t.active ? "  <- active" : ""}`).join("\n") || "(none)";
@@ -999,10 +1025,18 @@ export class LLM {
       .join("\n");
     return this.call<PlanJson>({
       purpose: "plan",
-      system: accOn("answerRules") ? `${PLAN_SYSTEM}\n${ANSWER_RULES}` : PLAN_SYSTEM,
+      system:
+        (accOn("answerRules") ? `${PLAN_SYSTEM}\n${ANSWER_RULES}` : PLAN_SYSTEM) +
+        (siteMap.length ? `\n${SITE_MAP_RULE}` : ""),
       schema: PLAN_SCHEMA,
       effort: costOn("planLow") ? "low" : "medium",
-      content: JSON.stringify({ task, today, tabs: tabList, site_notes: notes }),
+      content: JSON.stringify({
+        task,
+        today,
+        tabs: tabList,
+        site_notes: notes,
+        ...(siteMap.length ? { site_map: siteMap.join("\n") } : {}),
+      }),
     });
   }
 
@@ -1073,7 +1107,9 @@ export class LLM {
               (finalRead && accOn("answerGuard")
                 ? " This is the run's final read: text IS the user's final answer, written in exactly the format the task requires; it is never empty when complete is true."
                 : "") +
-              (finalRead && accOn("answerRules") ? ` ${ANSWER_RULES}` : "")),
+              (finalRead && accOn("answerRules") ? ` ${ANSWER_RULES}` : "") +
+              (finalRead && recordsChanges(notes) ? ` ${CHANGE_RULE}` : "") +
+              (finalRead && unverifiedSettings(notes) ? ` ${UNVERIFIED_RULE}` : "")),
       content: [
         ...visualEvidence(image, focus),
         {
@@ -1132,7 +1168,7 @@ export class LLM {
       schema: fillSchema(fields.map((f) => f.label)),
       system:
         PAGE_SAFETY +
-        " Extract DESIRED target values only for ACTUAL supplied fields required by the CURRENT form step. Future outcomes such as submitting or finding a product are not unresolved form fields. Assignments and unresolved use only supplied field labels. Extract target field values from the current step instructions, evidence notes or the visual reference shown on the page. Field identities intentionally omit current values: do not copy the current form as the target. Return assignments including already-correct fields when the target explicitly specifies them; code performs the current-state diff. Each assignment requires source_kind and a concise source_evidence showing where that desired value comes from. A visual example/pattern is the target, not the current editable grid. Use exact supplied labels; select exact option text, slider numeric text, checkbox/radio/switch true or false. For unknown targets return unresolved with reason, never default to current state. Relative instructions such as toggle/increase need an explicit known baseline in task/evidence notes; otherwise unresolved so browser inspection can establish it. Do not invent personal details, passwords, payment data or CAPTCHA answers. Never submit or click buttons.",
+        ' Extract DESIRED target values only for ACTUAL supplied fields required by the CURRENT form step. Future outcomes such as submitting or finding a product are not unresolved form fields. Assignments and unresolved use only supplied field labels. Extract target field values from the current step instructions, evidence notes or the visual reference shown on the page. Field identities intentionally omit current values: do not copy the current form as the target. Return assignments including already-correct fields when the target explicitly specifies them; code performs the current-state diff. Each assignment requires source_kind and a concise source_evidence showing where that desired value comes from. A visual example/pattern is the target, not the current editable grid. Use exact supplied labels; select exact option text, slider numeric text, checkbox/radio/switch true or false. For a supplied field with multiple=true, desired_value is a JSON-encoded array of every requested option label, including already-correct choices (for example ["General","Wholesale"]); it specifies the entire selected set, not one addition. For unknown targets return unresolved with reason, never default to current state. Relative instructions such as toggle/increase need an explicit known baseline in task/evidence notes; otherwise unresolved so browser inspection can establish it. Do not invent personal details, passwords, payment data or CAPTCHA answers. Never submit or click buttons.',
       content: [
         ...visualEvidence(image, focus),
         {
@@ -1528,7 +1564,9 @@ An already_done decision causes separate verification of the current step; it do
 The browser agent's run ended before its planned final answer (stop_reason says why). Write the user's final answer now from ONLY the collected notes, the recorded actions and the page the run ended on. Do not plan browser actions.
 evidence first, in at most 80 words: each thing the task asks for, and the fact here that supports it or that it is missing.
 supported: true only when that evidence supports the whole answer: requested information appears in the facts (a fact recorded as the first qualifying item of a list verified to be sorted the requested way counts as the optimum); a page to open is the page the run ended on; a change to make is confirmed by a recorded action and its visible result.
-answer: the final answer in exactly the format the task text requires (when it gives a JSON object, its fields and allowed values, a date format or a list form, follow it exactly, with nothing around it). When supported is true, give the supported values and the format's success status if it has one. When it is false, never guess a value: use the format's failure or not-found status and error explanation if it has them, otherwise say in one line what is missing. The failure status is for a requested value that is missing or a change that was not made: values the facts record, or a change a recorded request or the site's saved message confirms, are answered with the success status even when the run's own check was unsure (a format with room for an explanation carries the doubt there). Never invent names, numbers, dates or pages.${
+answer: the final answer in exactly the format the task text requires (when it gives a JSON object, its fields and allowed values, a date format or a list form, follow it exactly, with nothing around it). When supported is true, give the supported values and the format's success status if it has one. When it is false, never guess a value: use the format's failure or not-found status and error explanation if it has them, otherwise say in one line what is missing. The failure status is for a requested value that is missing or a change that was not made: values the facts record, or a change a recorded request or the site's saved message confirms, are answered with the success status even when the run's own check was unsure (a format with room for an explanation carries the doubt there).${
+        recordsChanges(notes) ? ` ${CHANGE_RULE}` : ""
+      } Never invent names, numbers, dates or pages.${
         accOn("answerGuard")
           ? " When the task gives a JSON format, answer is that JSON object alone, whether supported is true or false: never prose, never a status line."
           : ""
@@ -1608,6 +1646,7 @@ value: the exact text the step needs from the notes, copied as the notes show it
     opts,
     replan = true,
     finish = false,
+    dragTo = false,
   }: {
     task?: string;
     state: string;
@@ -1617,12 +1656,14 @@ value: the exact text the step needs from the notes, copied as the notes show it
     opts: Record<string, string>;
     replan?: boolean;
     finish?: boolean;
+    /** the dragTo switch: the helper may drag one tagged element onto another */
+    dragTo?: boolean;
   }): Promise<LlmResult<RescueJson>> {
     const [mime, b64] = image.split(";base64,") as [string, string]; // every image here is a data URL
     return this.call<RescueJson>({
       purpose: "rescue",
-      system: rescueSystem(replan, finish),
-      schema: rescueSchema(Object.keys(opts), replan, finish),
+      system: rescueSystem(replan, finish, dragTo),
+      schema: rescueSchema(Object.keys(opts), replan, finish, dragTo),
       content: [
         ...(rawImage ? [imageBlock(rawImage)] : []),
         { type: "image", source: { type: "base64", media_type: mime.replace("data:", ""), data: b64 } },

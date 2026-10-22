@@ -253,6 +253,10 @@ export interface PageEl {
   select?: boolean;
   options?: string[];
   selectedIndex?: number;
+  /** longSelects: a native select with more options than are offered as moves; only the ones the step names are */
+  longList?: boolean;
+  selectedOptions?: string[];
+  multiple?: boolean;
   slider?: Slider | null;
   paginationURL?: string;
   paginationLabel?: string;
@@ -267,6 +271,12 @@ export interface PageEl {
   submenu?: boolean;
   /** cdp.elements() never sets this: the read in macros' detailControls is a guard that never fires. */
   disabled?: boolean;
+  /** marked as something to drag (draggable="true", jQuery UI's ui-draggable or ui-sortable-handle, aria-grabbed) */
+  draggable?: boolean;
+  /** a read-only field (a date picker's input): it takes no typing */
+  readOnly?: boolean;
+  /** shows text of its own (not only a name from an aria-label, alt or label): copyMove copies it */
+  ownText?: boolean;
 }
 /** What a click at a screen point would land on (Tab.pointTarget), read with the mouse already at the point. */
 export interface PointTarget {
@@ -327,6 +337,13 @@ export interface Notices {
   url: string;
   title: string;
 }
+/** settingReadback: where the page shows each of a step's values applied (Tab.readBack), by the value as the step
+ * says it, and the values it doesn't show. Where: "field value", "select", "aria-pressed", "aria-selected",
+ * "aria-checked", "state", "chip", "heading" or "url"; the agent adds "drex" and "llm" for a value one of them saw. */
+export interface ReadBack {
+  found: Record<string, string>;
+  missing: string[];
+}
 /** The page's title, address and readable text (Tab.info). */
 export interface PageInfo {
   title: string;
@@ -341,11 +358,42 @@ export interface Problem {
   text: string;
   url?: string;
 }
+/** A site request that may change something (POST, PUT, PATCH, DELETE), as Tab keeps it for confirmedChanges. */
+export interface Mutation {
+  method: string;
+  url: string;
+  /** the site's answer; unset until it came */
+  status?: number;
+  /** Chrome's resource type (Document, XHR, Fetch, Ping...) */
+  type: string;
+  /** performance.now() when it was sent */
+  ts: number;
+  /** a redirect that kept the method (307, 308): the request continues at url, and this is where it was sent */
+  redirectedFrom?: string;
+}
+/** The site's answers to a move's requests: "POST /path 302" for each, 2xx and 3xx confirmed, 4xx and 5xx rejected. */
+export interface MoveMutations {
+  confirmed: string[];
+  rejected: string[];
+  /** set when a confirmed request is a form post that navigated (a Document request) or a PUT, PATCH or DELETE: a
+   * change of the site's data, where a POST from the page's script may be a search (Tab.mutationsSince) */
+  strong?: true;
+}
+/** A change a move made (confirmedChanges), as the notes confirmed_changes and rejected_changes list it. */
+export interface RecordedChange {
+  /** the goal of the step the move was made for */
+  step: string;
+  move: string;
+  requests: string[];
+  notices: string[];
+}
 /** The state of a field as the page reports it (Tab.fieldValue): a custom slider has only a value. */
 export interface FieldValue {
   value: unknown;
   checked?: boolean;
   selectedIndex?: number;
+  selectedOptions?: string[];
+  multiple?: boolean;
   disabled: boolean;
 }
 /** What a slider move reports (Tab.adjustSlider, Tab.setValue). `value` is whatever the page showed. */
@@ -382,6 +430,9 @@ export interface GestureSpec {
   endY?: number;
   key?: string;
   modifiers?: unknown;
+  /** a drag_to gesture: the tags (E#) of the element dragged and of the one it is dropped onto */
+  from?: string;
+  to?: string;
 }
 /** One move Drex can pick (buildOptions), plus the two the agent builds from the LLM's answer: a click at a point and a gesture.
  * Its element is one cdp.elements() listed (the agent reads its node). A move without an element or a text has them
@@ -391,9 +442,15 @@ export type MoveOption =
   | { kind: "look"; el?: LocatedEl; text?: undefined }
   | { kind: "set_value"; el: LocatedEl; value: number; text?: undefined }
   | { kind: "adjust_slider"; el: LocatedEl; direction: number; text?: undefined }
-  | { kind: "select"; el: LocatedEl; index: number; value: string; text?: undefined }
+  | { kind: "select"; el: LocatedEl; index: number; value: string; values?: string[]; text?: undefined }
   | { kind: "type" | "type_pick" | "click" | "scroll_to" | "scroll_click"; el: LocatedEl; text?: StepText }
   | { kind: "hover"; el: LocatedEl; text?: undefined }
+  /** Drex chose what to drag; where it goes is its next choice (agent.ts makes it a drag_to) */
+  | { kind: "drag_pick"; el: LocatedEl; text?: undefined }
+  | { kind: "drag_to"; el: LocatedEl; to: LocatedEl; text?: undefined }
+  /** Drex chose whose text to copy; the field it goes into is its next choice (agent.ts makes it a copy_to) */
+  | { kind: "copy_pick"; el: LocatedEl; text?: undefined }
+  | { kind: "copy_to"; el: LocatedEl; to: LocatedEl; text?: undefined }
   | { kind: "write"; el: LocatedEl; text?: undefined }
   | { kind: "navigate_page"; el: LocatedEl; url: string; text?: undefined }
   | { kind: "type_cursor"; text?: StepText; el?: undefined }
@@ -427,6 +484,8 @@ export type HistoryEntry = { marker: true } | MoveRecord;
 /** What candidates.publicMetadata reports for one element. checked and indeterminate come only for checkable controls. */
 export interface PublicMetadata {
   name: string;
+  /** a colour input: typing a hex code ("#AB2567") sets it */
+  colorField?: boolean;
   /** a tel:, mailto: or sms: link: it opens another app, never a page, so it is not offered as a move */
   appLink?: boolean;
   /** The painted background of an unlabeled control that shows no text: "light red, hsl(0 74% 83%)". */
@@ -711,7 +770,15 @@ export interface RescueJson {
   text?: string;
   x?: number;
   y?: number;
-  gesture?: { kind?: string; endX?: number; endY?: number; key?: string; modifiers?: unknown };
+  gesture?: {
+    kind?: string;
+    endX?: number;
+    endY?: number;
+    key?: string;
+    modifiers?: unknown;
+    from?: string;
+    to?: string;
+  };
   new_steps?: LlmStep[];
 }
 
@@ -775,6 +842,8 @@ export interface MacroHost extends CollectionAgent {
   collectionMutationEpoch?: number;
   collectionMemory?: Map<string, CollectionMemory>;
   fillObjections?: Map<string, number>;
+  /** pickSuggestion: the suggestion the last typing in each field (by node) committed, which fill accepts */
+  pickedSuggestions?: Record<number, string>;
   tabs: Map<number, Tab>;
   /** Chrome's tab ids, which its types leave optional. */
   tabBindings?: Map<number, number | undefined>;
@@ -800,6 +869,9 @@ export interface MacroHost extends CollectionAgent {
     opts?: { prechecked?: boolean; step?: Step | null },
   ): Promise<Outcome | undefined>;
   read(step: Step, opts?: { requeue?: Step }): Promise<Outcome>;
+  /** settingReadback: the agent's read-back of a fill step's values once its check passed (verified), which ends the
+   * step or goes on with it. */
+  readBackFill?(step: Step, verified: Outcome): Promise<Outcome>;
 }
 
 // --- the run (agent.ts; background, bridge and the panel read what it reports) ---
@@ -857,6 +929,8 @@ export interface PartialEvidence {
 /** What Agent.run() returns. */
 export interface RunResult {
   status: RunStatus;
+  /** Task completion is distinct from exhausting the planned steps. */
+  completion?: { verified: boolean; evidence: string };
   message: string;
   answer: string;
   notes: Notes;

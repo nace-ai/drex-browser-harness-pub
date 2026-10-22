@@ -71,7 +71,10 @@ export function domCandidates({ probeListeners = false } = {}): Element[] & { pr
       if (!pager && e.matches("input,button,select,textarea,a[href],summary,option,label")) continue;
       const canvas = e.tagName === "CANVAS";
       const custom = e.matches("div,span,svg,li,td,img");
-      if (!canvas && !custom && !customSlider && !pager) continue;
+      // marked to be dragged (the markers BOX_FN reads): listed for its drag move even with no listener of its own (a
+      // sortable list's items, which jQuery UI drives from the list)
+      const draggable = e.matches('[draggable="true"],.ui-draggable,.ui-sortable-handle,[aria-grabbed]');
+      if (!canvas && !custom && !customSlider && !pager && !draggable) continue;
       const r = e.getBoundingClientRect();
       if (r.width < 3 || r.height < 3) continue;
       const s = getComputedStyle(e);
@@ -118,7 +121,7 @@ export function domCandidates({ probeListeners = false } = {}): Element[] & { pr
         // control with no approval
         if ((outer && listed(outer)) || (first && (!own || same(first.getBoundingClientRect(), r)))) continue;
       }
-      if (canvas || customSlider || pager || listener || pointer) out.push(e);
+      if (canvas || customSlider || pager || listener || pointer || draggable) out.push(e);
       else if (
         probeListeners &&
         custom &&
@@ -157,6 +160,27 @@ interface Probe extends HTMLElement {
   href?: string;
 }
 export function publicMetadata(this: Probe): PublicMetadata {
+  // runs in the page as this function's source (publicMetadata.toString()): helpers live inside it
+  // What an icon-only control shows, from its icon font's class ("fa-trash", "ql-bold", "glyphicon-star" -> "trash",
+  // "bold", "star") or its image's file name ("delete.png" -> "delete"): a control with no text, label or title had no
+  // name at all, so the model told a trash icon from a star by place alone, and the approval gate could not read it. At
+  // most two words; generic tokens (icon, btn, fa, solid) say nothing.
+  const iconName = (el: Element): string => {
+    const generic =
+      /^(icon|icons|btn|button|fa|fas|far|fab|fal|svg|material|glyphicon|ql|bi|mdi|octicon|solid|regular|lg|sm|xs|md|fw|ui|active|selected|disabled|hidden|clickable|pull|left|right|float|inline|block)$/i;
+    const words: string[] = [];
+    for (const e of [el, ...Array.from(el.children).slice(0, 2)]) {
+      for (const cls of Array.from(e.classList)) {
+        const m = /^(?:fa|fas|far|ql|icon|glyphicon|bi|mdi|octicon|ion|ti|la|feather)[-_](.+)$/i.exec(cls);
+        for (const w of (m?.[1] ?? "").split(/[-_]+/))
+          if (w.length > 1 && !generic.test(w) && !/\d/.test(w) && !words.includes(w)) words.push(w.toLowerCase());
+      }
+      const bg = getComputedStyle(e).backgroundImage;
+      const file = /url\(["']?[^"')]*\/([a-z][a-z_-]{1,20})\.(?:png|svg|gif|jpe?g|webp)/i.exec(bg)?.[1];
+      if (file && !words.includes(file)) words.push(file.replace(/[-_]+/g, " ").toLowerCase());
+    }
+    return words.slice(0, 2).join(" ");
+  };
   const flat = (t: string | null | undefined) => (t ?? "").replace(/\s+/g, " ").trim();
   const labels = this.labels ? [...this.labels].map((e) => e.innerText).join(" ") : "";
   const labelled = (this.getAttribute("aria-labelledby") ?? "")
@@ -171,7 +195,8 @@ export function publicMetadata(this: Probe): PublicMetadata {
       this.getAttribute("title") ||
       this.innerText ||
       this.getAttribute("alt") ||
-      this.getAttribute("placeholder"),
+      this.getAttribute("placeholder") ||
+      iconName(this),
   ).slice(0, 120);
   const number = (v: string | null | undefined, fallback: number) =>
     v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : fallback;
@@ -277,7 +302,7 @@ export function publicMetadata(this: Probe): PublicMetadata {
             : // a submit, button or image input is a button: the approval gate judges it by its name ("Place your order")
               this.tagName === "INPUT" && /^(submit|button|reset|image)$/.test(type ?? "")
               ? "button"
-              : this.tagName === "INPUT" || this.tagName === "TEXTAREA"
+              : this.tagName === "INPUT" || this.tagName === "TEXTAREA" || this.isContentEditable
                 ? "textbox"
                 : this.tagName === "A"
                   ? "link"
@@ -354,6 +379,11 @@ export function publicMetadata(this: Probe): PublicMetadata {
     role,
     paginationURL,
     paginationLabel,
+    // a colour field (a native colour input, or a jscolor-style text box) takes a hex code typed into it
+    ...((this.tagName === "INPUT" && type === "color") ||
+    this.matches("input.jscolor, input[data-jscolor], input.color")
+      ? { colorField: true }
+      : {}),
     // a phone, mail or text-message link hands the browser to another app, and the tab stopped taking clicks after one
     ...(this.matches("a[href]") && /^\s*(tel|mailto|sms|callto):/i.test(this.getAttribute("href") ?? "")
       ? { appLink: true }

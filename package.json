@@ -1,6 +1,6 @@
 {
   "name": "drex-browser-harness",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Chrome extension: give it any task in plain words; Drex Max does the clicking, an LLM plans and reads.",

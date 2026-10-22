@@ -64,10 +64,14 @@ await esbuild.build({
         : (process.env.DREX_COST ??
             "packText,llmTaskTrim,noThink,drexCompact,drexText,llmNoImage,staticSchema,verifyDrex,searchEnter,obsLite,collectLite"),
     ),
-    // the accuracy switches of src/accuracy.ts: all on by default (measured on WebArena DEV and HOLDOUT-1);
+    // the accuracy switches of src/accuracy.ts: all on by default (the first four measured on WebArena DEV and
+    // HOLDOUT-1; the four mechanics on the MiniWoB families they target, 102/140 vs 61/140 on the eval VM);
     // DREX_ACC=none builds without them, DREX_ACC="noteResolve,answerGuard" builds with just those
     __DREX_ACC__: JSON.stringify(
-      process.env.DREX_ACC === "none" ? "" : (process.env.DREX_ACC ?? "noteResolve,answerGuard,answerRules,scanOn"),
+      process.env.DREX_ACC === "none"
+        ? ""
+        : (process.env.DREX_ACC ??
+            "noteResolve,answerGuard,answerRules,scanOn,confirmedChanges,revealEvidence,dragTo,datePicker,pickSuggestion,copyMove"),
     ),
   },
   logLevel: "warning",

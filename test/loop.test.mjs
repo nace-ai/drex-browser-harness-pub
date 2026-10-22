@@ -101,3 +101,19 @@ test("scrollRun: scrolls in a row at the end of the history, since the last loop
   // scrolling to a control and clicking it acts on the page
   assert.equal(L.scrollRun([...scrolls(2), move("scrolled to and clicked button 'Apply'", home)]), 0);
 });
+
+test("findLoop: a 7-move search, sort and filter circle, twice round, is a loop", () => {
+  const list = { url: "https://shop.example/catalogsearch", texts: ["searchbox 'Search'", "combobox 'Sort By'"] };
+  const circle = [
+    "typed 'shoe organizer' into searchbox 'Search'",
+    "chose 'Price' in combobox 'Sort By'",
+    "clicked 'Set Ascending Direction'",
+    "hovered 'Home & Kitchen'",
+    "hovered 'Storage & Organization'",
+    "clicked 'Shoe Organizers'",
+    "chose 'Relevance' in combobox 'Sort By'",
+  ];
+  const h = [...circle, ...circle].map((what) => move(what, list));
+  assert.deepEqual(L.findLoop(h), { period: 7, moves: circle });
+  assert.equal(L.findLoop(h.slice(0, 12)), null); // not yet twice round
+});

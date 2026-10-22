@@ -417,7 +417,8 @@ function onEvent(type: string, data: Record<string, unknown>): void {
       break;
     }
     case "decision":
-      pendingDrex = data;
+      // a drop's sub-choice (sub: "drop") follows its drag's own decision: the move row shows the drag's
+      if (!(data as { sub?: string }).sub) pendingDrex = data;
       break;
     case "move": {
       const e = data as { who: string; what: string; changed?: boolean; p?: number; ms?: number; effect?: string };
