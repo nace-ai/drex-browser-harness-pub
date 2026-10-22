@@ -1,7 +1,7 @@
 // One run of a task. The LLM turns the task into a short plan; Drex Max makes every move of each browse step (one
 // call per move: the screen, the screen with tagged elements, and every possible move as a choice); the LLM writes
 // the text of read steps and takes over single moves when Drex is unsure. Every call's time and cost is counted.
-import { Tab, abortReason } from "./cdp.ts";
+import { Tab, abortReason, type SuggestionPick } from "./cdp.ts";
 import { pick, yes } from "./drex.ts";
 import * as L from "./logic.ts";
 import { dataUrl, drawMarks, thumb, toShot } from "./shots.ts";
@@ -10,12 +10,12 @@ import { siteFor, sitesForTask } from "./sites.ts";
 import { collect, collectLite, fill, safeLink } from "./macros.ts";
 import { publicMetadata } from "./candidates.ts";
 import { focusedEvidence } from "./focused.ts";
-import { revealAnswer, type Reveal } from "./evidence.ts";
+import { revealAnswer, type Reveal, type Revealed, type Seen } from "./evidence.ts";
 import { RunBudget, RunLimit } from "./run-budget.ts";
 import { describeError } from "./errors.ts";
 import { runCostCap } from "./models.ts";
 import { costOn, costValue, drexImages, moveOptions, movesTask } from "./cost.ts";
-import { accOn } from "./accuracy.ts";
+import { CHANGE_RULE, accOn } from "./accuracy.ts";
 import type { Drex } from "./drex.ts";
 import type { LLM } from "./llm.ts";
 import type {
@@ -28,12 +28,16 @@ import type {
   Emit,
   EndReport,
   EndScreen,
+  FinalAnswerJson,
   HistoryEntry,
+  LlmResult,
   LocatedEl,
   Looked,
   MacroHost,
+  MoveMutations,
   MoveOption,
   Notes,
+  Notices,
   OffScreenEl,
   OnScreenEl,
   Outcome,
@@ -48,6 +52,9 @@ import type {
   PreparationJson,
   PublicMetadata,
   Questions,
+  ReadBack,
+  ReadJson,
+  RecordedChange,
   RunEvent,
   RunLimits,
   RunOptions,
@@ -63,6 +70,8 @@ import type {
 } from "./types.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A new tab's wait on about:blank before it goes to its address (openOwnTab). */
+const NEW_TAB_SETTLE_MS = 300;
 const BLANK_GRACE_MS = 1500; // how long a blank tab a click opened may take to start loading its page
 const LANDING_WAIT_MS = 15000; // how long a planned URL may take to redirect to its site (sheets.new: several hops)
 // why a table was not typed (Tab.type): what Drex reads in its history for that move
@@ -97,15 +106,30 @@ const OBS_LITE = 4; // the obsLite cost switch: moves an LLM check reads,
 const OBS_LITE_CONTROLS = 8; // controls kept from each side of a move,
 const OBS_LITE_TEXT = 200; // and page text
 const MAX_NOTICES = 10; // notices ("Item added!") kept in the notes
+const MAX_CHANGES = 10; // changes of each kind (confirmed, rejected) kept in the notes (confirmedChanges)
+// confirmedChanges: a notice a click brought up that says the site took the change, or refused it. A refusal is read
+// first: "Payment unsuccessful" and "Item not added" hold a success word (ruling 16)
+const SAVED_NOTICE = /saved|added|subscribed|updated|created|submitted|thank you|success/i;
+const FAILED_NOTICE =
+  /\b(error|failed|invalid|unable|cannot|could not|denied|not allowed|try again|unsuccessful|wasn't|weren't|couldn't)\b|\bnot (be )?(saved|added|updated|created|submitted|subscribed|placed|sent)\b/i;
 const EXTRA_MOVES = 10; // granted once per step when the LLM says to keep going after the step ran out of moves
 const TAB_BUSY_RETRIES = 25;
 const MAX_PAGES = 100; // batch steps: pages of a list to go through at most (a 1,650-email inbox is ~33 pages)
+// a batch with an action that matched nothing on this many pages is walking the wrong list (a whole forum where the
+// user's own page has the item): it fails, so the run replans to a narrower list
+const BATCH_EMPTY_PAGES = 3;
+const BATCH_TIME_RESERVE_MS = 60_000; // and it stops paging with this little of the run's time left
 const PAGE_WAIT_MS = 8000; // a list's next page can take seconds to arrive (Gmail fetches it)
 const LIST_REFRESH_MS = 4000; // after a bulk action, how long to wait for the list to refresh
 const BULK_MOVES = 8; // moves for one bulk action on the ticked items (toolbar, menu, confirm dialog)
 const ITEM_MOVES = 6; // moves for one item's action when the list has no checkboxes
 const PAUSE_MOVES = 6; // a loop's moves are left out of Drex's options for this many moves
 const META_KINDS = ["step_done", "stuck", "check_done", "ask_user", "look"]; // options that are not moves on the page
+const COPY_HINT = /\b(copy|paste|duplicate)\b/i; // the copyMove switch: the step or task speaks of copying text
+// the dragTo switch: the step or task speaks of dragging or moving things (Drex's drag move only; the helper's drag_to
+// by tags needs the switch alone). A drag library marks every card, block or row draggable, so without the hint each
+// would add a move to every screen of a board, an editor or a file manager
+const DRAG_HINT = /\b(drag|drop|move|reorder|sort|rearrange|arrange)\b/i;
 // no plan: what the LLM is told when it checks whether the user's task is finished
 // no plan: what the LLM is told when Drex is about to make a click that can't be undone (Place order, Pay, Send...)
 const RISKY_CHECK =
@@ -224,6 +248,36 @@ export class ReadCap extends Error {}
 // Without a cap, runs read result lists item by item, a call each, until the run's call cap, where the site's own
 // filters would have shown the answer; past this the step ends with what it read and the plan goes on.
 export const MAX_COLLECT_CALLS = 6;
+/** pickSuggestion: the fields whose typing may open a suggestion list (a number box's arrow keys change its number) */
+const SUGGEST_ROLES: ReadonlySet<string | undefined> = new Set(["textbox", "combobox"]);
+
+/** confirmedChanges: a move whose site answers are a change the run made: a click on a button or a link (a submit input
+ * is a button), or a key pressed on a focused one. Typing, choosing and scrolling never count. */
+function changeControl(act: MoveOption, els: PageEl[]): boolean {
+  const el =
+    act.kind === "click" || act.kind === "scroll_click"
+      ? act.el
+      : act.kind === "key"
+        ? els.find((e) => e.state?.includes("(focused)"))
+        : undefined;
+  return !!el && !el.field && (el.role === "button" || el.role === "link");
+}
+
+/** settingReadback: values as a sentence names them: "Legal", "Legal and Remote", "Legal, Remote and Full-time". */
+const listed = (values: string[]): string =>
+  values.length > 1 ? `${values.slice(0, -1).join(", ")} and ${String(values.at(-1))}` : (values[0] ?? "");
+
+/** The status an answer object gives ("DATA_VALIDATION_ERROR"), or "". */
+function statusOf(text: string): string {
+  try {
+    const value: unknown = JSON.parse(L.jsonObject(text) || text);
+    return value && typeof value === "object" && "status" in value && typeof value.status === "string"
+      ? value.status
+      : "";
+  } catch {
+    return "";
+  }
+}
 
 /** The elements as the LLM's checks see them (read, verify, readiness). */
 const controlsOf = (els: PageEl[] | null | undefined) =>
@@ -262,6 +316,8 @@ export class Agent implements MacroHost {
   declare gesturesAllowed: boolean;
   declare trusted: Set<string>;
   declare namedUrls: Set<string>;
+  /** deadUrls: the addresses the plan guessed that showed a not-found page; no step opens them again */
+  declare deadUrls: Set<string>;
   declare landing: { tabId: number; origin: string; from: string | undefined } | null;
   declare recoveries: number;
   declare incompleteChecks: number;
@@ -304,6 +360,27 @@ export class Agent implements MacroHost {
   declare noteResolutions?: Map<string, { why: string; value: string }>;
   /** answerGuard: the final read found the task complete but wrote no answer; its evidence, for the final answer. */
   declare finalCheckEvidence?: string;
+  /** revealEvidence: the evidence the run's last final read cited, whatever it found: the reveal's first literals */
+  declare finalReadEvidence?: string;
+  /** confirmedChanges: the changes the run's moves made, confirmed or rejected, in the order they were made */
+  declare changes?: (RecordedChange & { rejected: boolean; strong?: true })[];
+  /** confirmedChanges: the run's answer was asked about again once already (confirmedChangeRetry) */
+  declare changeRetried?: boolean;
+  /** settingReadback: read-backs of the step running now that found a value missing (its own count: never the run's
+   * incomplete checks) */
+  declare readbackMisses: number;
+  /** settingReadback: the names of the buttons and links clicked in the step running now (actions, not values) */
+  declare stepClicks: string[];
+  /** settingReadback: the values the step running now set by a move: what it typed, the option it selected, the
+   * checkbox, radio, option or tab it clicked. Only these are read back (L.chosenLiterals). */
+  declare stepChosen: string[];
+  /** pickSuggestion: the suggestion the last typing in each field (by node) committed ("" once retyped), which the
+   * fill macro accepts as that field's value */
+  declare pickedSuggestions: Record<number, string>;
+  /** pickSuggestion: the fields whose pick failed; their next typing looks for no suggestion (no retry) */
+  declare suggestionMisses: Set<number>;
+  /** pickSuggestion: the fields where nothing appeared after a typing; a retry or replan there doesn't wait again */
+  declare suggestionQuiet: Set<number>;
 
   constructor({
     drex,
@@ -367,12 +444,16 @@ export class Agent implements MacroHost {
     this.gesturesAllowed = false; // you allowed point clicks and gestures for the rest of the task
     this.trusted = new Set(); // origins of the user's open tabs and the first plan's URLs: replans may only open these
     this.namedUrls = new Set(); // the first plan's URLs (the planner saw only the task)
+    this.deadUrls = new Set();
     this.landing = null; // one of them just opened: the site its own redirect lands on (trustLanding)
     this.site = null;
     this.collectCalls = null;
     this.recoveries = 0; // replans and recovery steps so far (MAX_RECOVERIES)
     this.incompleteChecks = 0; // reads/verifies in a row that found their answer missing (MAX_INCOMPLETE_CHECKS)
     this.batchApproved = false; // inside a bulk action you already approved for its items
+    this.readbackMisses = 0;
+    this.stepClicks = [];
+    this.stepChosen = [];
     this.record = [];
     this.visits = new Map();
     this.actionMemory = new Map();
@@ -381,6 +462,9 @@ export class Agent implements MacroHost {
     this.tabBindings = new Map();
     this.activePlanTab = null;
     this.acting = false; // a move is being made: a tab that appears now was opened by it
+    this.pickedSuggestions = {};
+    this.suggestionMisses = new Set();
+    this.suggestionQuiet = new Set();
     this.onCreated = (t) => {
       // a link opened with "noopener" (DoorDash's store cards) gets the window's ACTIVE tab as its opener, which in
       // background mode is the user's tab, not the agent's: a tab that appears in the agent's window during a move is
@@ -452,6 +536,12 @@ export class Agent implements MacroHost {
     this.collectionPreparations = new Map();
     this.noteResolutions = new Map();
     this.finalCheckEvidence = "";
+    this.finalReadEvidence = "";
+    this.changes = [];
+    this.changeRetried = false;
+    this.pickedSuggestions = {};
+    this.suggestionMisses = new Set();
+    this.suggestionQuiet = new Set();
     chrome.tabs.onCreated.addListener(this.onCreated);
     chrome.debugger.onDetach.addListener(this.onDetach);
     let status: RunStatus = "done";
@@ -476,8 +566,14 @@ export class Agent implements MacroHost {
           ? L.directPlan(task)
           : (
               await this.untilStopped(
-                this.llmCall("plan", () =>
-                  this.llm.plan({ task, tabs: this.startTabs, today: new Date().toDateString(), sites }),
+                this.llmCall("plan", async () =>
+                  this.llm.plan({
+                    task,
+                    tabs: this.startTabs,
+                    today: new Date().toDateString(),
+                    sites,
+                    siteMap: await this.siteMap(),
+                  }),
                 ),
               )
             ).json;
@@ -532,12 +628,21 @@ export class Agent implements MacroHost {
         const step = this.plan.steps[this.index];
         this.log("step", { index: this.index, status: "running" });
         if (step == null) throw new Error(`The plan's step ${this.index + 1} is missing.`);
+        // settingReadback: the read-back's misses and the controls clicked count within one step: a step that starts
+        // (the next one, or one a replan put here) starts from none
+        this.readbackMisses = 0;
+        this.stepClicks = [];
+        this.stepChosen = [];
         if (this.planning && ["browse", "fill", "batch"].includes(String(step.kind)) && this.writeEvidenceFirst(step))
           continue;
         // noteResolve: a step that acts on a list's notes gets the value it needs from them, not their JSON
         if (accOn("noteResolve") && this.planning && ["browse", "fill", "batch"].includes(String(step.kind)))
           await this.untilStopped(this.resolveNotes(step));
+        // deadUrls: where the run was before the step opened its address, to go back to if that address is dead
+        const cameFrom = accOn("deadUrls") && this.planning && step.open_url ? await this.hereUrl() : "";
         await this.untilStopped(this.prepare(step));
+        if (accOn("deadUrls") && this.planning && step.open_url)
+          await this.untilStopped(this.leaveDeadUrl(step, cameFrom));
         const res = await this.untilStopped(
           (["read", "look", "verify"] as unknown[]).includes(step.kind)
             ? this.read(step)
@@ -588,6 +693,8 @@ export class Agent implements MacroHost {
                 .then((i) => i.url)
                 .catch(() => "")
             : "";
+          // deadUrls: a replan doesn't open an address that already showed a not-found page
+          for (const r of repairs) if (r.open_url && this.deadUrls.has(r.open_url)) r.open_url = "";
           const kept = L.keepPage(repairs, here);
           if (kept.dropped.length)
             this.log("tab", { what: `stayed on the current page instead of reopening ${kept.dropped.join(", ")}` });
@@ -643,10 +750,20 @@ export class Agent implements MacroHost {
       // navigation result: ... verified."): it is written again in the format, from the same evidence; a file's name
       // ("package.json") asks for no format
       const answeredInFormat = !!written && (!/(?<!\.)\bJSON\b/i.test(this.task) || L.inFormat(written, this.task));
+      // confirmedChanges: an answer the final read wrote in the format is checked against the run's record of its
+      // changes, as one terminalAnswer writes is
+      const recheck = answeredInFormat && accOn("confirmedChanges");
       // a hand-over isn't the run's end: its answer says what the person is needed for. An unattended run has no one to
       // hand over to: its attempt still ends with an answer in the task's format, whose reason is the hand-over message
-      if (!answeredInFormat && !this.stopped && status !== "stopped" && (status !== "needs_user" || this.unattended))
-        lastAnswer = await this.untilStopped(this.terminalAnswer(status, message, written)).catch((e: unknown) => {
+      if (
+        (!answeredInFormat || recheck) &&
+        !this.stopped &&
+        status !== "stopped" &&
+        (status !== "needs_user" || this.unattended)
+      )
+        lastAnswer = await this.untilStopped(
+          recheck ? this.confirmedChangeRetry(written) : this.terminalAnswer(status, message, written),
+        ).catch((e: unknown) => {
           this.log("final_answer", { error: (e as Error).message });
           // Stop while the answer was being written stops the run: its status says so, not the limit it ended on
           if (this.stopped || e instanceof Stopped) {
@@ -736,33 +853,21 @@ export class Agent implements MacroHost {
    * null when nothing was kept back (planning off, a fixed plan, limits too small) or the run's cost is uncertain. */
   async terminalAnswer(status: RunStatus, reason: string, unformatted?: string): Promise<string | null> {
     if (!this.runBudget.release()) return null;
-    let page: { url: string; title: string; text: string } | null = null;
-    try {
-      if (this.agentTabId) {
-        const info = await (await this.currentTab()).info(4000);
-        page = { url: info.url, title: info.title, text: info.text };
-      }
-    } catch {} // the tab is gone: the answer comes from the notes alone
+    const page = await this.endPage();
     const confirmed =
       accOn("answerGuard") && status === "done" && !unformatted && this.finalCheckEvidence
         ? `The run's planned final check found the task complete on the page it ended on, and wrote no answer text: ${this.finalCheckEvidence.slice(0, 1500)}. Write the final answer from that check and the notes.`
         : "";
-    const ask = (why: string) =>
-      this.llmCall("final_answer", () =>
-        this.llm.finalAnswer({
-          task: this.task,
-          reason: why,
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- notes is unset when the run fails before its first step
-          notes: this.notes ?? {},
-          observations: this.recentObservations(8),
-          page,
-        }),
-      );
+    const ask = this.finalAsk(page);
     const r = await ask(
       confirmed ||
-        (unformatted
-          ? `The run's final answer is not in the format the task asks for; write it in that format: ${unformatted}`
-          : `${status}: ${reason}`),
+        (unformatted && status === "done"
+          ? // a finished run's last step checked the page and wrote this answer: only its shape is wrong, so it is
+            // reformatted, never judged again (re-judged as "not proven", correct data came back as a validation error)
+            `Every step of the run finished; its last step checked the page and wrote this answer, which is right but not in the format the task asks for: ${unformatted}\nWrite exactly these values in that format, with the format's success status; use a failure status only if this answer itself says a requested value is missing.`
+          : unformatted
+            ? `The run's final answer is not in the format the task asks for; write it in that format: ${unformatted}`
+            : `${status}: ${reason}`),
     );
     let text = (r.json.answer ?? "").trim();
     this.log("final_answer", { supported: r.json.supported, evidence: r.json.evidence, answer: text, page: page?.url });
@@ -796,7 +901,78 @@ export class Agent implements MacroHost {
         if (again) this.log("final_answer", { supported: again.json.supported, answer: retried, retry: "format" });
       }
     }
+    text = await this.confirmedChangeRetry(text, ask);
     return text || null;
+  }
+
+  /** The page the run ended on, for its final answer; null when the tab is gone (the notes alone answer then). */
+  async endPage(): Promise<{ url: string; title: string; text: string } | null> {
+    try {
+      if (this.agentTabId) {
+        const info = await (await this.currentTab()).info(4000);
+        return { url: info.url, title: info.title, text: info.text };
+      }
+    } catch {} // the tab is gone
+    return null;
+  }
+
+  /** The final-answer request: the task's answer from the notes, the last moves and the page the run ended on. */
+  finalAsk(page: { url: string; title: string; text: string } | null) {
+    return (why: string): Promise<LlmResult<FinalAnswerJson>> =>
+      this.llmCall("final_answer", () =>
+        this.llm.finalAnswer({
+          task: this.task,
+          reason: why,
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- notes is unset when the run fails before its first step
+          notes: this.notes ?? {},
+          observations: this.recentObservations(8),
+          page,
+        }),
+      );
+  }
+
+  /** confirmedChanges: an answer giving an error status when the site confirmed the task's last change (changeRefusal)
+   * is asked about once more, with that record; the second answer stands, whatever it says. Once per run, whichever
+   * wrote the answer: terminalAnswer passes its own request; for the final read's answer the request run() kept back
+   * for the final answer is used, and with none kept back the answer stands. */
+  async confirmedChangeRetry(
+    text: string,
+    ask?: (why: string) => Promise<LlmResult<FinalAnswerJson>>,
+  ): Promise<string> {
+    if (!accOn("confirmedChanges") || this.changeRetried || !text) return text;
+    const refused = this.changeRefusal(text);
+    if (!refused) return text;
+    if (!ask) {
+      if (!this.runBudget.release()) return text;
+      ask = this.finalAsk(await this.endPage());
+    }
+    this.changeRetried = true;
+    const again = await ask(refused).catch((e: unknown) => {
+      this.log("final_answer", { retry: "confirmed_change", error: (e as Error).message });
+      return null;
+    });
+    const retried = (again?.json.answer ?? "").trim();
+    if (again)
+      this.log("final_answer", { supported: again.json.supported, answer: retried, retry: "confirmed_change" });
+    return retried || text;
+  }
+
+  /** confirmedChanges: why an answer's error status is asked about again, or "" when it stands. Only when the task's
+   * format has error statuses and the answer gives one, and the plan's last mutating step has a change the site
+   * confirmed with no change rejected after it (L.refusalChanges: an add-to-cart 200 and then a checkout 400, or an
+   * order never placed, is no confirmed last change). */
+  changeRefusal(text: string): string {
+    const status = statusOf(text);
+    if (!status || !L.errorStatuses(this.task).includes(status)) return "";
+    const changes = this.changes ?? [];
+    if (!changes.some((c) => !c.rejected)) return ""; // nothing confirmed; and a run whose planning failed has no plan
+    const cited = L.refusalChanges(this.plan, changes);
+    const goal = cited[0]?.step;
+    if (goal === undefined) return "";
+    const record = cited
+      .map((c) => `${c.move}: ${[...c.requests, ...c.notices.map((n) => `notice '${n}'`)].join(", ")}`)
+      .join("; ");
+    return `The run's answer gives the error status ${status}: ${text.slice(0, 1500)}\nBut the run's record confirms the change made for the step "${goal}" (${record}) and no change was rejected after it. ${CHANGE_RULE} Write the final answer again in exactly the task's format.`;
   }
 
   partialAnswer(reason: string): string {
@@ -873,7 +1049,14 @@ export class Agent implements MacroHost {
       );
       this.bindOwnTab(this.agentTabId, url, fromTab?.url);
     } else {
-      const t = await tabsCall(() => chrome.tabs.create({ windowId: this.windowId, url, active: !this.background }));
+      // the new tab opens blank and then goes to its address: a tool watching the browser's traffic (a benchmark's
+      // network recording) attaches to a new tab a moment after it appears, and missed the first page of half the tabs
+      // opened straight on their address (WebArena 264: the right category page opened, graded as never reached)
+      const t = await tabsCall(() =>
+        chrome.tabs.create({ windowId: this.windowId, url: "about:blank", active: !this.background }),
+      );
+      await sleep(NEW_TAB_SETTLE_MS);
+      if (t.id != null) await tabsCall(() => chrome.tabs.update(t.id ?? undefined, { url }));
       this.agentTabId = t.id;
       this.ownTab = true;
       if (t.id != null) this.bindOwnTab(t.id, url, fromTab?.url);
@@ -991,6 +1174,49 @@ export class Agent implements MacroHost {
     return true;
   }
 
+  /** The address of the page the run is on now ("" before it has a tab or while one can't be read). */
+  async hereUrl(): Promise<string> {
+    if (!this.agentTabId) return "";
+    return this.currentTab()
+      .then((t) => t.info(0))
+      .then((i) => i.url)
+      .catch(() => "");
+  }
+
+  /** deadUrls: a step's address that the plan guessed (not a tab the user had open, not in the task's text) and that
+   * shows a not-found page is dead: the run goes back to where it was (or the site's start page), no step of the plan
+   * or a later replan opens it again, this step is told to get there through the site's own links, and the notes
+   * every later call reads list it. WebArena admin 710 (the planner's /admin/reports/report_shipping/, a 404) and reddit
+   * 722 (/u/Don_Gato1 for the user's page). */
+  async leaveDeadUrl(step: Step, cameFrom: string): Promise<void> {
+    const url = step.open_url ?? "";
+    if (
+      !L.guessedUrl(
+        url,
+        this.task,
+        this.startTabs.map((t) => t.url),
+      )
+    )
+      return;
+    const info = await this.currentTab()
+      .then((t) => t.info(2000))
+      .catch(() => null);
+    if (!info || !L.deadPage(info)) return;
+    this.deadUrls.add(url);
+    const origin = L.originOf(url);
+    const back =
+      cameFrom && L.originOf(cameFrom) === origin
+        ? cameFrom
+        : (this.startTabs.find((t) => L.originOf(t.url) === origin)?.url ?? `${origin}/`);
+    for (const s of this.plan.steps) if (s.open_url && this.deadUrls.has(s.open_url)) s.open_url = "";
+    step.rules =
+      `${step.rules ?? ""} The address ${url} does not exist on this site (it showed a not-found page): reach the page through the site's own links, menus or search, not another guessed address.`.trim();
+    this.notes.unreachable_addresses = `${[...this.deadUrls].join(", ")}: each showed a not-found page. Reach those pages through the site's own links, menus or search.`;
+    this.log("dead_url", { url, back, title: info.title.slice(0, 120) });
+    await this.openOwnTab(back);
+    await (await this.currentTab()).settle();
+  }
+
   async prepare(step: { use_tab?: unknown; open_url?: string }): Promise<void> {
     // Planner references are logical indices, never arbitrary browser tab IDs.
     // Unknown or stale references preserve the current working context.
@@ -1048,6 +1274,22 @@ export class Agent implements MacroHost {
   }
 
   /** The agent's tab, in front and with the debugger attached. Follows a tab that the last click opened. */
+  /** navMap: the active tab's own navigation links for the planner (Tab.navMap); none without the switch, without a
+   * tab, or on a page that can't be read. */
+  async siteMap(): Promise<string[]> {
+    if (!accOn("navMap") || !this.agentTabId) return [];
+    const all = await this.currentTab()
+      .then((t) => t.navMap())
+      .catch(() => []);
+    const map = L.siteMapFor(all, this.task);
+    this.log("site_map", {
+      links: all.length,
+      given: map.length,
+      hidden: map.filter((l) => l.endsWith("(in a closed menu)")).length,
+    });
+    return map;
+  }
+
   async currentTab(): Promise<Tab> {
     let followedFrom: number | null | undefined = null; // the tab before a new one the last click opened
     if (this.newTabId) {
@@ -1337,6 +1579,7 @@ export class Agent implements MacroHost {
     );
     const d = r.json;
     this.log("verification", { purpose, complete: d.complete, evidence: d.evidence, page: info.url });
+    if (finalRead) this.finalReadEvidence = d.evidence ?? "";
     if (!d.complete && step.finalCheck) {
       // the run's added final check: the task's steps are done (maybe a message was sent or an order placed), so a
       // missing confirmation is reported with the answer, never a reason to go back and act again
@@ -1397,7 +1640,9 @@ export class Agent implements MacroHost {
     return {};
   }
 
-  async verifyStep(step: Step, scr: Looked): Promise<Outcome> {
+  /** The LLM's check of one step's result on the screen now: verifyStep's, and the setting read-back's (purpose names
+   * it in the log). */
+  async checkStep(step: Step, scr: Looked, purpose: string): Promise<ReadJson> {
     const tab = await this.currentTab();
     const info = await tab.info(60000);
     const focus = scr.shot ? await focusedEvidence(scr.shot, scr.els) : null;
@@ -1420,40 +1665,138 @@ export class Agent implements MacroHost {
         logicalTabs,
       }),
     );
-    this.log("verification", {
-      purpose: "step_done",
-      complete: r.json.complete,
-      evidence: r.json.evidence,
-      page: info.url,
-    });
-    if (r.json.complete) {
+    this.log("verification", { purpose, complete: r.json.complete, evidence: r.json.evidence, page: info.url });
+    return r.json;
+  }
+
+  async verifyStep(step: Step, scr: Looked): Promise<Outcome> {
+    const json = await this.checkStep(step, scr, "step_done");
+    if (json.complete) {
       this.incompleteChecks = 0;
-      this.notes[`evidence${this.index + 1}`] = r.json.evidence;
+      this.notes[`evidence${this.index + 1}`] = json.evidence;
       return {};
     }
     // every miss counts, a rejection too: Drex saying "step done" on every move would otherwise cost a check per move
     if (++this.incompleteChecks >= MAX_INCOMPLETE_CHECKS) {
       return {
-        fail: `Step ${this.index + 1} still isn't done after ${MAX_INCOMPLETE_CHECKS} checks: ${r.json.evidence}`,
+        fail: `Step ${this.index + 1} still isn't done after ${MAX_INCOMPLETE_CHECKS} checks: ${json.evidence}`,
         terminal: true,
       };
     }
-    if (this.planning && this.repeatedObjection(step, r.json.evidence)) {
+    if (this.planning && this.repeatedObjection(step, json.evidence)) {
       return {
         rejected:
-          String(r.json.evidence) +
+          String(json.evidence) +
           " This same objection was already observed: inspect an alternative supported route or fresh outcome evidence; do not repeat a confirmed mutation.",
       };
     }
     // with LLM planning off nothing replans: a failed check only sends Drex back to work
-    const next = need(r.json.next_steps, "The check's next steps");
-    if (next.length && this.planning) return { replan: next, why: r.json.evidence };
-    return { rejected: r.json.evidence };
+    const next = need(json.next_steps, "The check's next steps");
+    if (next.length && this.planning) return { replan: next, why: json.evidence };
+    return { rejected: json.evidence };
   }
 
-  async browse(step: Step): Promise<Outcome> {
-    const added: { name: string; text: string; origin: string | undefined }[] = []; // texts the LLM typed in this step: Drex can reuse them
+  // --- settingReadback ----------------------------------------------------------------------------------------------
+  /** settingReadback: whether this step's end is read back: a step of the plan (the one running now) that sets
+   * something. Not with the switch off, not in a run with no plan (its one step is the whole task, which ends past its
+   * own submit, where the values it set need not show), and not for a batch's sub-steps (a bulk action, one item:
+   * moves of their batch step). */
+  readsBack(step: Step): boolean {
+    return accOn("settingReadback") && this.planning && step === this.plan.steps[this.index] && L.isSettingStep(step);
+  }
+
+  /** settingReadback: whether a setting step that would end now may end. The page script looks for each value the step
+   * sets (L.settingLiterals) applied on the page; Drex is asked about the ones it misses, in one question with the
+   * screenshot; a value either one sees counts as found. A miss keeps the step going, with a note in the moves Drex
+   * reads next (`history`): the first one alone, the second with the LLM's check of the missing values (a value it
+   * confirms is found; its objection joins the note). The third ends the step anyway: its values go to the notes as
+   * unverified_settings, for the final read. The misses are the read-back's own (readbackMisses): never the run's
+   * incomplete checks, so the read-back never fails a run. */
+  async settingsApplied(step: Step, scr: Looked, history: HistoryEntry[]): Promise<boolean> {
+    if (!this.readsBack(step)) return true;
+    // a text that carries a note goes to a page only on the sites the task started on or named, as typing it would
+    // only the values a move in this step typed or chose: a value the goal names that no move set yet (an open-the-form
+    // step, a fill whose goal lists its values before it applies them) is not a miss (#39's targeted check: 76 of 97
+    // read-backs missed, most of them such values)
+    const named = L.settingLiterals(
+      { ...step, texts: L.resolveTexts(step.texts, this.notes, this.trusted.has(L.originOf(scr.info.url))) },
+      this.stepClicks,
+      this.task,
+    );
+    const literals = L.chosenLiterals(named, this.stepChosen);
+    if (named.length > literals.length)
+      this.log("setting_readback_skipped", { step: this.index, skipped: named.filter((l) => !literals.includes(l)) });
+    if (!literals.length) return true;
+    const tab = await this.currentTab();
+    // a page that can't be read (it is navigating) shows nothing: Drex's look at the screen decides
+    const back = await tab.readBack(literals).catch((): ReadBack => ({ found: {}, missing: literals }));
+    const found: Record<string, string> = {};
+    for (const l of literals) if (back.found[l]) found[l] = back.found[l];
+    let missing = literals.filter((l) => !found[l]);
+    if (missing.length) {
+      const state = `A web page in the user's browser, where a browser agent has just worked on one step of the task below. Image 1 is the screen now.\nTASK: ${movesTask(this.task)}\nSTEP: ${step.goal ?? ""}\nPAGE: ${scr.info.title} (${scr.info.url})\nCONTROLS ON SCREEN:\n${controlsOf(scr.els).join("\n") || "(none)"}`;
+      const q: Questions = {
+        applied: {
+          type: "noul",
+          instructions:
+            missing.length === 1
+              ? `Is ${listed(missing)} applied or selected on the screen now?`
+              : `Are ${listed(missing)} ${missing.length === 2 ? "both" : "all"} applied or selected on the screen now?`,
+        },
+      };
+      if ((yes(await this.drexCall(state, q, [scr.img1]), "applied") ?? 0) >= L.DONE_SURE) {
+        for (const l of missing) found[l] = "drex";
+        missing = [];
+      }
+    }
+    let objection = "";
+    if (missing.length && ++this.readbackMisses === 2) {
+      const names = listed(missing);
+      const json = await this.checkStep(
+        {
+          ...step,
+          goal: `the page shows ${names} applied or selected`,
+          done_when: `${names} applied or selected on the page now (a field holding it, a chosen option, an active filter or sort)`,
+        },
+        scr,
+        "setting_readback",
+      );
+      if (json.complete) {
+        for (const l of missing) found[l] = "llm";
+        missing = [];
+      } else objection = (json.evidence ?? "").slice(0, 300);
+    }
+    const miss = missing.length ? this.readbackMisses : 0;
+    this.log("setting_readback", { step: this.index, literals, found, missing, miss });
+    if (!missing.length) return true;
+    if (miss >= 3) {
+      // fail open: two forced retries were the read-back's worth; the final read checks what is left
+      const before = this.notes.unverified_settings ? (JSON.parse(this.notes.unverified_settings) as string[]) : [];
+      this.notes.unverified_settings = JSON.stringify([...new Set([...before, ...missing])]);
+      return true;
+    }
+    history.push({
+      what: `'step done' not taken: the page doesn't show ${listed(missing)} applied yet${objection ? ` (${objection})` : ""}`,
+      changed: false,
+    });
+    return false;
+  }
+
+  /** settingReadback: a fill step whose own check passed ends when the page shows its values (settingsApplied); when it
+   * doesn't, Drex goes on with the step by moves, the read-back's note first in them, and is read back again at its
+   * "step done". */
+  async readBackFill(step: Step, verified: Outcome): Promise<Outcome> {
+    if (!this.readsBack(step)) return verified;
+    const scr = await this.look(await this.currentTab());
     const history: HistoryEntry[] = [];
+    return (await this.settingsApplied(step, scr, history)) ? verified : this.browse(step, history);
+  }
+
+  /** start: the step's moves so far, when it goes on from a macro (settingReadback: a fill step whose values the page
+   * doesn't show). */
+  async browse(step: Step, start: HistoryEntry[] = []): Promise<Outcome> {
+    const added: { name: string; text: string; origin: string | undefined }[] = []; // texts the LLM typed in this step: Drex can reuse them
+    const history: HistoryEntry[] = [...start];
     let rescues = 0;
     let budget = L.moveBudget(step);
     // no plan: Drex may hand anything to the LLM, so its asks are bounded only by the step's moves
@@ -1528,6 +1871,13 @@ export class Agent implements MacroHost {
       }
       for (const [w, until] of paused) if (n >= until) paused.delete(w);
       if (!paused.size) loop = null;
+      // datePicker: a read-only field on screen (a date picker's input) is set to a date text; when no text is one,
+      // to the one date the step's goal, done_when or the task names (offered for read-only fields only)
+      const datePicker = accOn("datePicker");
+      const named =
+        datePicker && scr.els.some((e) => L.datePickerField(e)) && !texts.some((t) => L.parseDate(t.text))
+          ? L.stepDate(step, this.task)
+          : null;
       const { opts, acts } = L.withoutMoves(
         L.buildOptions({
           els: scr.els,
@@ -1536,6 +1886,13 @@ export class Agent implements MacroHost {
           tabs: otherTabs,
           direct: !this.planning,
           sliderValues: [...this.task.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0])),
+          dragTo: accOn("dragTo"),
+          dragHint: DRAG_HINT.test(`${step.goal ?? ""} ${step.done_when ?? ""} ${this.task}`),
+          copyMove: accOn("copyMove"),
+          copyHint: COPY_HINT.test(`${step.goal ?? ""} ${step.done_when ?? ""} ${this.task}`),
+          datePicker,
+          dateTexts: named ? [{ name: texts.some((t) => t.name === "date") ? "step_date" : "date", text: named }] : [],
+          wanted: `${step.goal ?? ""} ${step.done_when ?? ""} ${texts.map((t) => t.text).join(" ")} ${this.task}`,
         }),
         new Set(paused.keys()),
       );
@@ -1655,6 +2012,14 @@ export class Agent implements MacroHost {
       const last = history.at(-1);
       const afterReveal = !!last && !last.marker && !!last.revealOnly;
       if (L.isStepDone(Number(doneP), choice, Number(p), !this.planning, afterReveal)) {
+        // settingReadback: a step that sets something ends once the page shows it applied. Not after a move that can't
+        // be undone: the LLM's check of its result below decides, and the step is never sent back to repeat it. A
+        // refused "step done" costs the step no move (at most two are refused before it ends anyway): a step at its
+        // last move would otherwise run out of moves, where Drex's word ended it before
+        if (!committed && !(await this.settingsApplied(step, scr, history))) {
+          budget++;
+          continue;
+        }
         // after a move that can't be undone (send, pay, delete...), the LLM checks that it took effect; a step of
         // ordinary moves ends on Drex's word, as it always did
         if (committed) {
@@ -1712,9 +2077,27 @@ export class Agent implements MacroHost {
       // at a consent dialog after its first call)
       const handover = this.planning && chosen.kind === "ask_user";
       const asked = chosen.kind === "stuck" || finishQ || handover;
+      // each pair of a drag is a move of its own: a drop that changed nothing before, or that a circle paused, is not
+      // offered again for now, and a drag with no drop left is stalled like any move that changed nothing (a canvas or
+      // a picture is no drop target: L.dropTargets)
+      const drops = (source: LocatedEl) =>
+        L.dropTargets(scr.els, source).filter((e) => {
+          const pair = L.whatOf({ kind: "drag_to", el: source, to: e });
+          return !paused.has(pair) && !L.deadBefore(history, pair);
+        });
+      // the same for the fields a copy can go into
+      const pastes = (source: LocatedEl) =>
+        L.pasteTargets(scr.els, source).filter((e) => {
+          const pair = L.whatOf({ kind: "copy_to", el: source, to: e });
+          return !paused.has(pair) && !L.deadBefore(history, pair);
+        });
+      const stalled = (a: MoveOption, t: string | undefined) =>
+        !!L.stallReason(history, L.whatOf(a, t)) ||
+        (a.kind === "drag_pick" && !drops(a.el).length) ||
+        (a.kind === "copy_pick" && !pastes(a.el).length); // a copy is judged by its pairs, not as one move
       const doable = (k: string) => {
         const a = need(acts[k], `The move for option '${k}'`);
-        return !META_KINDS.includes(a.kind) && !L.stallReason(history, L.whatOf(a, a.text?.text));
+        return !META_KINDS.includes(a.kind) && !stalled(a, a.text?.text);
       };
       let act = chosen;
       let text = act.text?.text;
@@ -1723,7 +2106,7 @@ export class Agent implements MacroHost {
       let instead = "";
       if (choice === "step done" && !finishQ)
         instead = `its screen check says only ${(Number(doneP) * 100).toFixed(0)}% done`;
-      else if (!asked && act.kind !== "ask_user" && L.stallReason(history, L.whatOf(act, text))) {
+      else if (!asked && act.kind !== "ask_user" && stalled(act, text)) {
         paused.set(L.whatOf(act, text), n + PAUSE_MOVES); // a move that changed nothing before: not again for now
         instead = `'${L.whatOf(act, text)}' changed nothing before`;
         // with a plan, the second time in this step ends it (the run's recovery replans it); the first time the helper
@@ -1843,6 +2226,67 @@ export class Agent implements MacroHost {
           texts.find((t) => t.name === pick(r2, "value").choice),
           "The text Drex picked",
         ).text;
+      }
+      if (act.kind === "drag_pick") {
+        // Drex chose what to drag; where it goes is one more choice, over every other tagged element (no canvas or
+        // picture) it was not already dropped onto in vain (all of them when the drag is taken although nothing else
+        // makes progress either; L.buildOptions offers a drag only with a drop target on screen). Each target says
+        // where it is from the dragged element (its grid cell, or direction and distance): by name alone, "Drag Jinny
+        // to the center." found the centre cell in 3 of 8 runs.
+        const source = act.el;
+        const live = drops(source);
+        const targets = live.length ? live : L.dropTargets(scr.els, source);
+        const criteria = Object.fromEntries(targets.map((e) => [e.label, L.dropTargetDescription(source, e, scr.els)]));
+        const q: Questions = {
+          to: { type: "choice", instructions: L.dropInstructions(source, scr.els), criteria },
+        };
+        const r2 = await this.drexCall(
+          `${state}\n\nYOUR MOVE: drag ${source.label} (${L.describe(source)}).`,
+          q,
+          drexImages(this.task, scr, scr.img1, scr.img2),
+        );
+        const dropped = pick(r2, "to");
+        const to = need(
+          targets.find((e) => e.label === dropped.choice),
+          "The element Drex drops it onto",
+        );
+        // recorded like Drex's move choice: what it was offered, what it chose and how sure it was
+        const ranked = Object.entries(dropped.probs).sort((a, b) => b[1] - a[1]);
+        this.log("decision", {
+          who: "drex",
+          sub: "drop",
+          choice: to.label,
+          p: dropped.p === undefined ? null : +dropped.p.toFixed(3),
+          ms: Math.round(r2.ms),
+          usd: r2.usd,
+          top: ranked.slice(0, 3).map(([k, v]) => [k, +v.toFixed(3)]),
+          topText: ranked.slice(0, 3).map(([k, v]) => [criteria[k], +v.toFixed(3)]),
+          options: targets.length,
+        });
+        act = { kind: "drag_to", el: source, to };
+      }
+      if (act.kind === "copy_pick") {
+        // Drex chose whose text to copy; the field it goes into is one more choice, over the other editable fields
+        const source = act.el;
+        const live = pastes(source);
+        const targets = live.length ? live : L.pasteTargets(scr.els, source);
+        const q: Questions = {
+          to: {
+            type: "choice",
+            instructions: "Paste it into which field?",
+            criteria: Object.fromEntries(targets.map((e) => [e.label, L.describe(e)])),
+          },
+        };
+        const r2 = await this.drexCall(
+          `${state}\n\nYOUR MOVE: copy the text of ${source.label} (${L.describe(source)}).`,
+          q,
+          drexImages(this.task, scr, scr.img1, scr.img2),
+        );
+        const to = need(
+          targets.find((e) => e.label === pick(r2, "to").choice),
+          "The field Drex pastes it into",
+        );
+        act = { kind: "copy_to", el: source, to };
       }
       if (act.kind === "write" || act.kind === "write_cursor") {
         // Drex chose where to type; the LLM writes what (no LLM plan, so Drex was given no texts)
@@ -2046,7 +2490,9 @@ export class Agent implements MacroHost {
       let label =
         act.kind === "gesture"
           ? `${need(act.gesture, "The gesture").kind.replace("_", "-")} on the page`
-          : "click a point on the screen";
+          : act.kind === "drag_to"
+            ? `drag ${L.describe(act.el)} onto ${L.describe(act.to)}`
+            : "click a point on the screen";
       let why = "There's no button name to check, so it may send, pay or delete something.";
       let ask = true;
       const g = act.kind === "gesture" ? act.gesture : undefined;
@@ -2080,7 +2526,7 @@ export class Agent implements MacroHost {
       if (!this.approvals) this.log("skipped", { what: label });
       else if (ask && !this.batchApproved && !this.gesturesAllowed) {
         const ok = await this.askApproval(
-          `Drex's helper wants to ${label}${note ? ` (${note.slice(0, 200)})` : ""}. ${why} Go ahead?`,
+          `${act.kind === "drag_to" && who === "drex" ? "Drex" : "Drex's helper"} wants to ${label}${note ? ` (${note.slice(0, 200)})` : ""}. ${why} Go ahead?`,
           scr.img1,
         );
         if (!ok) throw new Stopped(`You declined: ${label}.`);
@@ -2101,6 +2547,7 @@ export class Agent implements MacroHost {
           : null;
     if (this.cursor && aim && scr.vp) this.emit("aim", { fx: aim[0] / scr.vp.w, fy: aim[1] / scr.vp.h });
     this.check(); // A model check or user handover may have exhausted the run deadline.
+    const moveStart = performance.now(); // confirmedChanges: the site requests from here on are this move's
     this.acting = true;
     try {
       // between the gate and the click the page may have changed under the point: what is there now is checked again
@@ -2129,7 +2576,17 @@ export class Agent implements MacroHost {
       }
       if (
         risky ||
-        ["type", "type_pick", "type_cursor", "select", "set_value", "adjust_slider", "point"].includes(act.kind) ||
+        [
+          "type",
+          "type_pick",
+          "type_cursor",
+          "select",
+          "set_value",
+          "adjust_slider",
+          "point",
+          "drag_to",
+          "copy_to",
+        ].includes(act.kind) ||
         (act.kind === "gesture" && need(act.gesture, "The gesture").kind !== "hover") ||
         (["checkbox", "radio", "switch"] as unknown[]).includes(act.el?.role)
       )
@@ -2149,12 +2606,36 @@ export class Agent implements MacroHost {
       }
       this.notes.observed_notices = JSON.stringify(retained.slice(-MAX_NOTICES));
     }
+    const change =
+      accOn("confirmedChanges") && !this.newTabId && changeControl(act, scr.els) && owner && L.isMutatingStep(owner)
+        ? this.recordChange(tab.mutationsSince(moveStart), before, after, what, owner.goal ?? "")
+        : null;
     const effect = this.newTabId ? "opened a new tab" : L.effectOf(before, after);
     // the page after the move: whether it changed, and (with the screenshot below) the next look's elements
     const afterElements = this.newTabId ? null : await tab.elements().catch(() => null);
     const afterInfo: (Omit<PageInfo, "text"> & { text?: string }) | null = this.newTabId
       ? null
       : await tab.info(OBSERVATION_TEXT).catch(() => null);
+    let settingMismatch = "";
+    if (
+      act.kind === "select" &&
+      afterInfo?.url === scr.info.url &&
+      afterElements?.els.some((e) => e.node === act.el.node)
+    ) {
+      const observed = await tab.fieldValue(act.el.node).catch(() => null);
+      if (observed) {
+        const expected =
+          act.values ?? (act.el.multiple ? [...new Set([...(act.el.selectedOptions ?? []), act.value])] : [act.value]);
+        const actual =
+          observed.selectedOptions ??
+          (observed.selectedIndex !== undefined && act.el.options?.[observed.selectedIndex] !== undefined
+            ? [act.el.options[observed.selectedIndex]]
+            : null);
+        if (actual && JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort()))
+          settingMismatch = `Selection did not hold in ${act.el.name || act.el.text}: requested ${JSON.stringify(expected)}, observed ${JSON.stringify(actual)}. Inspect the current control before correcting it.`;
+        this.log("select_readback", { field: act.el.label, expected, actual, ok: actual ? !settingMismatch : null });
+      }
+    }
     const semanticChanged =
       !!this.newTabId ||
       !afterElements ||
@@ -2172,9 +2653,17 @@ export class Agent implements MacroHost {
         controls: controlsOf(afterElements?.els),
         notices: after,
       },
+      ...(change?.confirmed.length ? { confirmed: change.confirmed } : {}),
+      ...(change?.rejected.length ? { rejected: change.rejected } : {}),
       semanticChanged,
     });
     if (this.observations.length > MAX_OBSERVATIONS) this.observations.shift();
+    // settingReadback: a button or link clicked in the step names an action ("See 12 Homes"), not a value the page
+    // should show; a checkbox, option or tab clicked chooses one
+    if ((act.kind === "click" || act.kind === "scroll_click") && (act.el.role === "button" || act.el.role === "link"))
+      this.stepClicks.push(act.el.name || act.el.text);
+    const chosen = L.chosenValue(act, text);
+    if (chosen) this.stepChosen.push(chosen);
     let changed = true;
     if (!this.newTabId && this.agentTabId === tab.id) {
       const jpeg = await this.capture(tab).catch(() => null);
@@ -2202,6 +2691,14 @@ export class Agent implements MacroHost {
       actMs: Math.round(performance.now() - t0),
     });
     this.tick();
+    if (settingMismatch) {
+      const repeated = this.notes.setting_mismatch === settingMismatch;
+      this.notes.setting_mismatch = settingMismatch;
+      const owner = step ?? this.plan.steps[this.index];
+      // a second identical mismatch doesn't stop the run: the note stays for the step's checks and the final answer
+      if (!owner || repeated) return { dispatched: true, risky };
+      return { dispatched: true, replan: this.recoverySteps(owner, settingMismatch), why: settingMismatch };
+    }
     return { dispatched: true, risky };
   }
 
@@ -2241,6 +2738,20 @@ export class Agent implements MacroHost {
       case "gesture":
         await tab.gesture(act.gesture);
         break;
+      case "drag_to": {
+        const changed = await tab.dragTo(act.el.node, act.to.node);
+        // nothing sent (either element has no box on screen now): no drag to log, so drag_to counts only real ones
+        if (changed === null)
+          return { dispatched: false, reason: "The element to drag or its target is not on screen" };
+        this.log("drag_to", { from: act.el.label, to: act.to.label, changed });
+        break;
+      }
+      case "copy_to": {
+        const r = await tab.copyInto(act.el.node, act.to.node, !!act.to.multi && !act.to.textarea);
+        this.log("copied", { from: act.el.label, to: act.to.label, chars: r.chars });
+        if (!r.chars) return { dispatched: false, reason: "Nothing to copy" };
+        break;
+      }
       case "click":
         await tab.click(...centre(need(act.el.box, "The control's box")));
         if (text && act.el.field) await this.typeInto(tab, act.el, text);
@@ -2294,7 +2805,17 @@ export class Agent implements MacroHost {
         break;
       }
       case "type":
-      case "type_pick":
+      case "type_pick": {
+        // datePicker: a read-only field (a date picker's input) takes no typing: the date is picked in the calendar it
+        // opens, all in this one move (setDate also tries a native date input's setter). When neither set it, the move
+        // changed nothing: typing into the field again would only send keys (Enter picks a highlighted day)
+        const date = L.datePickerField(act.el) && text && accOn("datePicker") ? L.parseDate(text) : null;
+        if (date) {
+          const r = await tab.setDate(act.el.node, date);
+          this.log("date_picked", { field: act.el.label, date: text, ok: r.ok, clicks: r.clicks });
+          if (!r.ok) return { dispatched: false, reason: "The calendar did not set the date" };
+          break;
+        }
         await tab.click(...centre(need(act.el.box, "The field's box")));
         if (!(await this.typeInto(tab, act.el, text))) return { dispatched: false, reason: ONE_LINE_TABLE };
         if (enter) {
@@ -2302,11 +2823,17 @@ export class Agent implements MacroHost {
           await tab.key("Enter");
         }
         break;
+      }
       case "type_cursor":
+        // a date or time input at the cursor takes its value whole, as typeInto does
+        if (await tab.setTemporalFocused(need(text, "The text to type"))) break;
         if (!(await tab.type(need(text, "The text to type")))) return { dispatched: false, reason: ONE_LINE_TABLE };
         break;
       case "select":
-        await tab.selectOption(act.el.node, act.index);
+        if (act.values) {
+          if (!(await tab.selectValues(act.el.node, act.values)))
+            return { dispatched: false, reason: "Requested multiselect options are missing or ambiguous" };
+        } else await tab.selectOption(act.el.node, act.index);
         break;
       case "set_value": {
         const result = await tab.setValue(act.el.node, act.value);
@@ -2320,6 +2847,8 @@ export class Agent implements MacroHost {
         await tab.key(act.key);
         break;
       case "back":
+        // Back past the tab's first real page lands on about:blank, where the run can do nothing more
+        if (!(await tab.canGoBack())) return { dispatched: false, reason: "There is no earlier page to go back to" };
         await chrome.tabs.goBack(tab.id).catch(() => undefined);
         break;
       case "tab":
@@ -2338,20 +2867,86 @@ export class Agent implements MacroHost {
     return undefined;
   }
 
+  /** confirmedChanges: what a click on a button or link changed, by the site's answers to the requests sent since the
+   * move started and the notices it brought up (a success notice alone confirms, an error notice alone rejects).
+   * Logged, kept with its step's goal in the notes the final answer reads, and returned for the move's observation:
+   * ["POST /newsletter/subscriber/new 302", "notice 'Thank you for your subscription'"]. */
+  recordChange(
+    requests: MoveMutations,
+    before: Notices | null,
+    after: Notices | null,
+    move: string,
+    step: string,
+  ): MoveMutations {
+    // a notice counts only when it came up with the move: with either side unread, none does (as in L.effectOf)
+    const fresh = before && after ? after.notes.filter((n) => !before.notes.includes(n)) : [];
+    const failed = fresh.filter((n) => FAILED_NOTICE.test(n));
+    const saved = fresh.filter((n) => !FAILED_NOTICE.test(n) && SAVED_NOTICE.test(n));
+    const out: MoveMutations = { confirmed: [], rejected: [] };
+    for (const rejected of [false, true]) {
+      const kind = rejected ? "rejected" : "confirmed";
+      const entry: RecordedChange = { step, move, requests: requests[kind], notices: rejected ? failed : saved };
+      if (!entry.requests.length && !entry.notices.length) continue;
+      out[kind] = [...entry.requests, ...entry.notices.map((n) => `notice '${n}'`)];
+      this.log(rejected ? "change_rejected" : "change_confirmed", {
+        move,
+        requests: entry.requests,
+        notices: entry.notices,
+      });
+      (this.changes ??= []).push({ ...entry, rejected, ...(!rejected && requests.strong ? { strong: true } : {}) });
+      this.notes[`${kind}_changes`] = JSON.stringify(
+        this.changes
+          .filter((c) => c.rejected === rejected)
+          .slice(-MAX_CHANGES)
+          .map(({ step, move, requests, notices }) => ({ step, move, requests, notices })),
+      );
+    }
+    return out;
+  }
+
   /** After a click on the field: a single-line field or a form text area is emptied and gets the text; a document
    * editor (contenteditable: a document, an email body) gets the text added at its end, so what it holds is never
    * wiped. A text area holds a form value (a bio, a message), which typed text replaces: appended, it doubled the old
    * value ("Freelance Web DeveloperFreelance...", WebArena reddit 402). */
   /** False when nothing was typed (a table at a one-line box: Tab.type). */
   async typeInto(tab: Tab, el: PageEl, text: string | null | undefined): Promise<boolean> {
+    const node = el.node;
+    if (node !== undefined && this.pickedSuggestions[node]) this.pickedSuggestions[node] = ""; // retyped: not that pick
     await sleep(150);
     // a date or time input takes its value whole (typed key by key, a time went into one segment only)
     if (el.node && text && (await tab.setTemporal(el.node, text))) return true;
     if (el.multi && !el.textarea) await tab.caretToEnd();
     else await tab.clearField();
-    if (!(await tab.type(need(text, "The text to type")))) return false;
+    const typed = need(text, "The text to type");
+    // pickSuggestion: a one-line text box that says it has suggestions (a combobox, an autocomplete hint on the field)
+    // may open a list, which the typing commits from. Not a search box, where Enter searches what was typed, and not
+    // again where a pick failed or nothing appeared. The lists already on the page are noted first: they are no
+    // suggestions for this text
+    const suggest =
+      accOn("pickSuggestion") &&
+      node !== undefined &&
+      SUGGEST_ROLES.has(el.role) &&
+      !el.multi &&
+      !L.searchField(el) &&
+      !this.suggestionMisses.has(node) &&
+      !this.suggestionQuiet.has(node) &&
+      (el.role === "combobox" || (await tab.autocompleteHint(node).catch(() => false)));
+    const since = suggest ? await tab.markSuggestions(node).catch(() => null) : null;
+    if (!(await tab.type(typed))) return false;
     // an autocomplete box: type, wait for the suggestions, then the next move picks one
-    if (el.role === "combobox") await tab.waitForSuggestions().catch(() => false);
+    const listed = el.role === "combobox" ? await tab.waitForSuggestions().catch(() => false) : null;
+    if (since !== null && node !== undefined) {
+      // a combobox whose list didn't come in that wait gets one look for a notice, not a second wait
+      const r = await tab
+        .pickSuggestion(node, typed, since, listed === false ? 0 : undefined)
+        .catch((): SuggestionPick => ({ ok: false }));
+      // logged when a list or a results notice appeared (after an ordinary field's typing nothing does)
+      if (r.picked !== undefined) {
+        this.log("suggestion_picked", { field: el.label, typed, picked: r.picked, ok: r.ok });
+        if (r.ok) this.pickedSuggestions[node] = r.picked;
+        else this.suggestionMisses.add(node);
+      } else if (!r.noResults) this.suggestionQuiet.add(node); // a notice of no results: other text may have some
+    }
     return true;
   }
 
@@ -2373,39 +2968,110 @@ export class Agent implements MacroHost {
 
   /** At the end of a run that found its answer: close a newsletter, cookie, app or offer pop-up over the page (at most
    * two), then scroll the answer into view if none of it is on screen. Only the agent's own tab; nothing is typed or
-   * submitted, and a pop-up that reports what the run did (added to cart, an order) is left alone. */
+   * submitted, and a pop-up that reports what the run did (added to cart, an order) is left alone. revealEvidence: the
+   * facts the final read cited are looked for before the answer's tokens, and as revealCited shows them. Every
+   * activation is logged (evidence_revealed), a no-op too: the reveal diagnostic had to rebuild 8 of 10 runs' reveals
+   * from screenshots. */
   async showEvidence(): Promise<void> {
     if (!this.agentTabId || !this.planning) return;
     const answer = this.plan.answer_from ? this.notes[this.plan.answer_from] : "";
-    const tokens = L.answerTokens(answer);
-    const tab = await this.currentTab();
-    const reveal = async (scroll: boolean) =>
-      (await tab.eval(`(${revealAnswer.toString()})(${JSON.stringify(tokens)}, ${scroll})`)) as Reveal | null;
-    for (let i = 0; i < 2; i++) {
-      const r = await reveal(false);
-      if (!r?.closer) break;
-      // what the click would land on now, read as the approval gate reads a point (with the mouse already there, so a
-      // control a hover reveals or swaps in is what counts): anything the gate would ask about is left alone, as no
-      // approval is asked at the end of a run. The one exception is a close glyph ("×"), which the gate reads as a
-      // button with no name; its other names, marks, frame and form are still checked
-      const at = await readPoint(tab, ...r.closer);
-      if (!at?.names.includes(r.closerName)) break;
-      const glyph = /^[x×✕✖]$/i.test(r.closerName);
-      if (L.pointRisk(glyph ? { ...at, role: "" } : at)) break;
-      await tab.click(...r.closer);
-      await tab.settle();
-      this.log("move", {
-        who: "drex",
-        what: `closed the pop-up over the answer (button '${r.closerName}')`,
-        changed: true,
-      });
+    const on = accOn("revealEvidence");
+    const tokens = on ? L.revealLiterals(this.finalReadEvidence, answer) : L.answerTokens(answer);
+    // what was looked for, where each one was, what was closed, what was scrolled to, and why nothing was
+    const shown = {
+      literals: tokens,
+      found: {} as Record<string, Seen>,
+      closed: [] as string[],
+      scrolled: null as string | null,
+      reason: "",
+      main: undefined as string | undefined,
+    };
+    try {
+      const tab = await this.currentTab();
+      const reveal = async (scroll: boolean) =>
+        (await tab.eval(`(${revealAnswer.toString()})(${JSON.stringify(tokens)}, ${scroll})`)) as Reveal | null;
+      for (let i = 0; i < 2; i++) {
+        const r = await reveal(false);
+        if (!r?.closer) break;
+        // what the click would land on now, read as the approval gate reads a point (with the mouse already there, so a
+        // control a hover reveals or swaps in is what counts): anything the gate would ask about is left alone, as no
+        // approval is asked at the end of a run. The one exception is a close glyph ("×"), which the gate reads as a
+        // button with no name; its other names, marks, frame and form are still checked
+        const at = await readPoint(tab, ...r.closer);
+        if (!at?.names.includes(r.closerName)) break;
+        const glyph = /^[x×✕✖]$/i.test(r.closerName);
+        if (L.pointRisk(glyph ? { ...at, role: "" } : at)) break;
+        await tab.click(...r.closer);
+        await tab.settle();
+        this.log("move", {
+          who: "drex",
+          what: `closed the pop-up over the answer (button '${r.closerName}')`,
+          changed: true,
+        });
+        shown.closed.push(`pop-up (button '${r.closerName}')`);
+      }
+      if (!tokens.length) {
+        shown.reason = "no literal to show";
+        return;
+      }
+      const r = on ? await this.revealCited(tab, tokens, shown.closed, answer) : await reveal(true);
+      shown.found = r?.found ?? {};
+      if (on) shown.main = mainLiteral(tokens, answer, shown.found);
+      if (r?.scrolled) {
+        await tab.settle();
+        this.log("move", { who: "drex", what: `scrolled the answer ('${r.scrolled}') into view`, changed: true });
+        shown.scrolled = r.scrolled;
+      } else {
+        const inView =
+          shown.main && shown.found[shown.main] === "in_view"
+            ? shown.main
+            : Object.entries(shown.found).find(([, w]) => w === "in_view")?.[0];
+        shown.reason = !r
+          ? "the page script returned nothing"
+          : inView
+            ? `'${inView}' is already in view`
+            : r.closerName
+              ? `a pop-up the reveal did not close is over the page (button '${r.closerName}')`
+              : Object.values(shown.found).every((w) => w === "none")
+                ? "no literal is on the page"
+                : "the page did not scroll to it";
+      }
+    } catch (e) {
+      shown.reason ||= `failed: ${(e as Error).message}`;
+      throw e;
+    } finally {
+      this.log("evidence_revealed", on ? shown : { ...shown, main: undefined });
     }
-    if (!tokens.length) return;
-    const r = await reveal(true);
-    if (r?.scrolled) {
+  }
+
+  /** revealEvidence: the literals are looked for first. A picker the run's last moves left open over the middle of the
+   * screen (a date picker, listbox, menu or popover; never a pop-up reporting what the run did, and only one an Escape
+   * reaches alone) is closed only when it may hide what is to be shown: some literal is on the page but not in view.
+   * It is closed with Escape to the focused field, then the field blurred. Then the first literal not shown (in the
+   * middle of the screen with nothing over it) is scrolled to the middle when none is (evidence.ts revealFacts). A
+   * picker that closed goes into `closed`; its close is a move, as the screen changed. */
+  async revealCited(tab: Tab, literals: string[], closed: string[], answer = ""): Promise<Revealed | null> {
+    const look = await tab.revealFacts(literals, { scroll: false, blur: false });
+    // the best-ranked literal on the page decides (mainLiteral); a picker hides nothing the reveal shows when that one
+    // is in view, or none is on the page: it stays
+    let main = mainLiteral(literals, answer, look?.found ?? {});
+    const hidden = !!main && (look?.found[main] === "occluded" || look?.found[main] === "off_screen");
+    if (look?.picker && hidden) {
+      await tab.key("Escape");
+      await tab.revealFacts([], { scroll: false, blur: true });
       await tab.settle();
-      this.log("move", { who: "drex", what: `scrolled the answer ('${r.scrolled}') into view`, changed: true });
+      const again = await tab.revealFacts(literals, { scroll: false, blur: false });
+      if (again && again.picker !== look.picker) {
+        closed.push(look.picker);
+        this.log("move", {
+          who: "drex",
+          what: `closed the ${look.picker} left open over the answer (Escape)`,
+          changed: true,
+        });
+      }
+      main = mainLiteral(literals, answer, again?.found ?? look.found);
     }
+    return tab.revealFacts(literals, { scroll: true, blur: false, ...(main ? { main } : {}) });
   }
 
   /** The LLM takes one move (or replans, or hands over, or, with no plan, says the task is finished).
@@ -2427,10 +3093,14 @@ export class Agent implements MacroHost {
       (texts.length
         ? " (The TEXT YOU CAN TYPE list limits Drex, not you: with a typing move, put whatever text the task needs in text.)"
         : "");
-    // the helper can't hand the move to itself: on United's error page Haiku chose "ask for help" over and over
+    // the helper can't hand the move to itself: on United's error page Haiku chose "ask for help" over and over. Nor
+    // does it get Drex's half of a drag (drag_pick): its drag_to gesture names the drop target as well
     const helperOpts = Object.fromEntries(
       Object.entries(opts).filter(
-        ([k]) => !["stuck", "check_done", "look"].includes(need(acts[k], `The move for option '${k}'`).kind),
+        ([k]) =>
+          !["stuck", "check_done", "look", "drag_pick", "copy_pick"].includes(
+            need(acts[k], `The move for option '${k}'`).kind,
+          ),
       ),
     );
     const logicalTabs = await this.logicalTabs();
@@ -2444,6 +3114,7 @@ export class Agent implements MacroHost {
         opts: helperOpts,
         replan: this.planning,
         finish: !this.planning,
+        dragTo: accOn("dragTo"),
       }),
     );
     const d = r.json;
@@ -2474,6 +3145,16 @@ export class Agent implements MacroHost {
     const scale = () => need(scr.shot, "The screenshot").scale;
     if (d.decision === "gesture") {
       const spec = d.gesture;
+      if (spec?.kind === "drag_to" && accOn("dragTo")) {
+        // by the elements' tags, so no pixel is guessed; a tag that is not on screen is rejected like a bad gesture
+        const tagged = (label: string | undefined) =>
+          scr.els.find((e) => e.label === (label ?? "").trim().toUpperCase());
+        const el = tagged(spec.from),
+          to = tagged(spec.to);
+        if (!el || !to || el === to)
+          throw new Error(`Invalid helper gesture: drag_to from '${spec.from}' onto '${spec.to}'`);
+        return { act: { kind: "drag_to", el, to }, text: "", why: d.why };
+      }
       if (
         !spec ||
         !(spec.kind === "hover" || spec.kind === "double_click" || spec.kind === "drag" || spec.kind === "keychord")
@@ -2535,11 +3216,18 @@ export class Agent implements MacroHost {
     const seen = new Set<string>();
     const results: Record<string, string[]> = {};
     const allowed = new Set<string>(); // answers whose action you allowed for the rest of the task
+    const acting = step.choices.some((c) => !!c.action);
+    let matched = 0;
     for (let pages = 0; ;) {
       this.check();
       const tab = await this.currentTab();
       const fresh = (await tab.items()).filter((it) => !seen.has(it.key));
       if (!fresh.length) {
+        if (acting && !matched && pages >= BATCH_EMPTY_PAGES)
+          return {
+            fail: `${pages} pages of this list held nothing to act on: open a narrower list instead (the user's own page, a filter, a sort or a search)`,
+          };
+        if (this.runBudget.remainingMs() < BATCH_TIME_RESERVE_MS) break;
         if (pages >= MAX_PAGES || !(await this.nextPage(step, seen))) break;
         pages++;
         continue;
@@ -2548,6 +3236,7 @@ export class Agent implements MacroHost {
       for (const d of decided) if (Number(d.p) < L.BATCH_SURE) await this.decideOpened(step, d);
       for (const choice of step.choices.filter((c): c is StepChoice & { action: string } => !!c.action)) {
         const group = decided.filter((d) => d.choice === choice.name).map((d) => d.item);
+        matched += group.length;
         if (group.length) await this.applyChoice(choice, group, allowed);
       }
       for (const d of decided) {
@@ -2844,4 +3533,23 @@ export class Agent implements MacroHost {
     const ok = await this.waitForUser("user", message);
     if (!ok) throw new Stopped("Stopped at your request.");
   }
+}
+
+/** revealEvidence: the literal that decides the end-of-run scroll, the first on the page (found is not "none") in this
+ * order: the literals the answer's text also holds, longest first; then the other literals, longest first (a literal
+ * the answer's own tokens make is the answer's, whatever the evidence says). Undefined when none is on the page. */
+export function mainLiteral(
+  literals: string[],
+  answer: string | null | undefined,
+  found: Record<string, string>,
+): string | undefined {
+  const said = ` ${L.normalizeLiteral(answer ?? "")} `;
+  const tokens = new Set(L.answerTokens(answer).map((t) => L.normalizeLiteral(t)));
+  const inAnswer = (l: string) => {
+    const n = L.normalizeLiteral(l);
+    return !!n && (tokens.has(n) || said.includes(` ${n} `));
+  };
+  const longest = (a: string, b: string) => b.length - a.length;
+  const on = literals.filter((l) => found[l] !== undefined && found[l] !== "none");
+  return [...on.filter(inAnswer).sort(longest), ...on.filter((l) => !inAnswer(l)).sort(longest)][0];
 }

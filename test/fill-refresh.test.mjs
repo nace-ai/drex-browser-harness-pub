@@ -219,3 +219,56 @@ test("unique semantic field after rerender accepts new backend node but never th
   assert.equal((await fill.call(a, { kind: "fill", goal: a.task })).verified, true);
   assert.equal(chosen, 2);
 });
+
+test("a multiselect assignment verifies the entire requested set, including removal of extra choices", async () => {
+  for (const selected of [["General", "Wholesale"], ["General"], ["General", "Wholesale", "Guest"]]) {
+    const field = {
+      label: "E1",
+      node: 1,
+      name: "Customer groups",
+      text: "Customer groups",
+      role: "listbox",
+      select: true,
+      multiple: true,
+      options: ["General", "Wholesale", "Guest"],
+    };
+    const url = "https://example.test/rule";
+    let dispatched;
+    const host = {
+      task: "Select exactly General and Wholesale",
+      notes: {},
+      index: 0,
+      log() {},
+      currentTab: async () => ({
+        info: async () => ({ url, text: "Customer groups" }),
+        fieldValue: async () => ({ selectedOptions: selected, selectedIndex: 0 }),
+      }),
+      look: async () => ({ info: { url }, els: [field] }),
+      llmCall: async (_purpose, fn) => fn(),
+      llm: {
+        fill: async () => ({
+          json: {
+            fields: [
+              {
+                label: "E1",
+                desired_value: JSON.stringify(["General", "Wholesale"]),
+                source_kind: "instruction",
+                source_evidence: "exactly General and Wholesale",
+              },
+            ],
+            unresolved: [],
+          },
+        }),
+      },
+      act: async (_tab, act) => {
+        dispatched = act;
+        return { dispatched: true };
+      },
+      read: async () => ({ verified: true }),
+    };
+    const result = await fill.call(host, { kind: "fill", goal: host.task, save_as: "fields" });
+    assert.deepEqual(dispatched.values, ["General", "Wholesale"]);
+    assert.equal(JSON.parse(host.notes.fields)[0].ok, selected.length === 2);
+    assert.equal(!!result.replan, selected.length !== 2);
+  }
+});

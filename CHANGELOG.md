@@ -4,6 +4,36 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## [0.1.4] - 2026-10-22
+
+### Added
+
+- **Chrome extension**: dragging one element onto another, setting a read-only date field through its calendar,
+  committing an autocomplete suggestion, and copying an element's text into a field, each as one move.
+- **Chrome extension**: optional accuracy switches, off by default and set at build time with `DREX_ACC`:
+  - `stepCaps`: a step asked for what its kind can't do is split into steps that can.
+  - `stateReceipt`: a click records what it changed on the clicked control.
+  - `factStore`: the values each read sees are kept across steps.
+  - `settingReadback`: a setting step ends only when the page shows the values its moves set.
+  - `deadUrls`: a guessed address that shows a not-found page is left.
+  - `longSelects`: a select with more than 30 options keeps them.
+  - `navMap`: the planner gets the site's own navigation links, hidden menu items included.
+  - `frames`: the controls of same-site iframes are listed with the page's.
+- **Chrome extension**: changes that the site's own requests confirm are not answered with an error status, and the
+  end of a run scrolls the facts its answer cites into view (`confirmedChanges` and `revealEvidence`, on by default).
+
+### Fixed
+
+- **Chrome extension**: a click lands on the visible part of a control inside a scrollable panel.
+- **Chrome extension**: a native multiple select is set and checked as the whole requested set.
+- **Chrome extension**: a single select is checked after it is set, with one recovery when the choice didn't hold.
+- **Chrome extension**: typing a date or time at the cursor sets the whole input.
+- **Chrome extension**: scrolling targets the right box, key chords edit text, icons are named from their classes, and
+  rich-text editors are treated as text boxes.
+- **Chrome extension**: loops up to nine moves long are noticed, and a batch over a list stops after three empty pages.
+- **Chrome extension**: a new working tab opens blank before it goes to its address, so tools that record the
+  browser's traffic see its first page.
+
 ## [0.1.3] - 2026-10-21
 
 ### Fixed

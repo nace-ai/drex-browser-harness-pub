@@ -57,3 +57,37 @@ test("a final answer cut off at its output limit is refused, not retried", async
   await assert.rejects(llm.finalAnswer({ task, reason: "failed: gave up", notes: {} }), /truncated/);
   assert.equal(sent, 1);
 });
+// test_final_prompt_carries_confirmed_changes
+test("the final answer and the final read get the run's confirmed changes and the rule for reporting them", async () => {
+  const rule =
+    "a change in confirmed_changes is reported with the success status; a change in rejected_changes with the failure status";
+  const llm = setup();
+  const sent = [];
+  llm.client.messages.create = async (body) => {
+    sent.push(body);
+    return reply({ evidence: "Rule saved", supported: true, answer });
+  };
+  const change = { step: "Save the rule", move: "clicked button 'Save'", requests: ["POST /rule/save 302"] };
+  const notes = { confirmed_changes: JSON.stringify([{ ...change, notices: ["You saved the rule."] }]) };
+  await llm.finalAnswer({ task, reason: "partial: Run time limit reached", notes });
+  assert.ok(JSON.stringify(sent[0].system).includes(rule));
+  assert.match(JSON.stringify(sent[0].messages), /confirmed_changes.*POST \/rule\/save 302/);
+  const page = {
+    title: "Rules",
+    url: "http://shop.test/rules",
+    text: "You saved the rule.",
+    truncated: false,
+    chars: 19,
+  };
+  const read = { kind: "read", goal: "Report the result", save_as: "final_task_answer" };
+  llm.client.messages.create = async (body) => {
+    sent.push(body);
+    return reply({ complete: true, evidence: "Rule saved", text: answer, next_steps: [] });
+  };
+  await llm.read({ task, planText: "", step: read, notes, info: page, image: "", finalRead: true });
+  assert.ok(JSON.stringify(sent[1].system).includes(rule));
+  assert.match(JSON.stringify(sent[1].messages), /confirmed_changes/);
+  // a run that recorded no change is asked as before: no rule about notes it doesn't have
+  await llm.finalAnswer({ task, reason: "partial: Run time limit reached", notes: { price: "17.25" } });
+  assert.ok(!JSON.stringify(sent[2].system).includes(rule));
+});

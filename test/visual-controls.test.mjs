@@ -110,3 +110,22 @@ test("fill's assignments can name only the fields it was given", async () => {
   const sent = JSON.stringify(body);
   assert.ok(sent.includes('"label":{"type":"string","enum":["E2"]}'), "the label is an enum of the supplied labels");
 });
+
+test("native multiselect options already selected are not offered as additions", () => {
+  const { acts } = L.buildOptions({
+    els: [
+      el("E1", "Customer groups", {
+        select: true,
+        multiple: true,
+        options: ["General", "Wholesale", "Guest"],
+        selectedIndex: 0,
+        selectedOptions: ["General", "Wholesale"],
+      }),
+    ],
+  });
+  const additions = Object.values(acts).filter((a) => a.kind === "select");
+  assert.deepEqual(
+    additions.map((a) => a.value),
+    ["Guest"],
+  );
+});

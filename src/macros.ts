@@ -451,6 +451,7 @@ export async function collect(this: MacroHost, step: Step): Promise<Outcome> {
               text: L.describe(e),
               role: e.role,
               options: e.options,
+              ...(e.multiple ? { multiple: true } : {}),
             })),
           }),
         )
@@ -1296,6 +1297,7 @@ function fieldIdentity(e: PageEl) {
     grid: e.grid,
     position: e.box,
     options: e.options,
+    ...(e.multiple ? { multiple: true } : {}),
     slider: e.slider
       ? { min: e.slider.min, max: e.slider.max, step: e.slider.step, orientation: e.slider.orientation }
       : undefined,
@@ -1478,9 +1480,29 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
     } else if (el.slider) act = { kind: "set_value", el, value: Number(value) };
     else if (el.select) {
       if (!el.options) throw new Error(`Form select has no options: ${el.text}`);
-      const index = el.options.indexOf(value);
-      if (index < 0) return { fail: `Form option unavailable: ${value}` };
-      act = { kind: "select", el, index, value };
+      if (el.multiple) {
+        let values: unknown;
+        try {
+          values = el.options.includes(value) ? [value] : JSON.parse(value);
+        } catch {
+          values = [value];
+        }
+        if (
+          !Array.isArray(values) ||
+          !values.every((v): v is string => typeof v === "string" && el.options?.filter((o) => o === v).length === 1)
+        )
+          return { fail: `Expected exact option labels for multiselect: ${value}` };
+        act = { kind: "select", el, index: -1, value, values: [...new Set(values)] };
+      } else {
+        // an exact label, else the one label that matches it but for case and spacing ("georgia", "GEORGIA")
+        let index = el.options.indexOf(value);
+        if (index < 0) {
+          const loose = el.options.flatMap((o, j) => (L.normalizeLiteral(o) === L.normalizeLiteral(value) ? [j] : []));
+          if (loose.length === 1) index = loose[0] ?? -1;
+        }
+        if (index < 0) return { fail: `Form option unavailable: ${value}` };
+        act = { kind: "select", el, index, value };
+      }
     } else act = { kind: "type", el };
     const dispatch = await this.act(tab, act, value, current, [], "macro", 1, "fill and verify; no submission", {
       step,
@@ -1498,7 +1520,7 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
     };
     results.push(entry);
     persist();
-    if (dispatch?.replan || dispatch?.fail) return dispatch;
+    if (dispatch?.replan || dispatch?.fail || dispatch?.partial) return dispatch;
     if (dispatch?.stepDone) return {};
     if (dispatch?.blocked || dispatch?.dispatched === false)
       return recover("Action was not dispatched; inspect the current form before retrying");
@@ -1526,15 +1548,25 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
     }
     const selectedLabel =
       el.select && observed.selectedIndex !== undefined ? matchedField.options?.[observed.selectedIndex] : undefined;
+    // pickSuggestion: the suggestion the typing committed ("Emmonak, AK (EMK)" for "Emmonak, AK") is the field's value
+    const picked = this.pickedSuggestions?.[el.node];
     const ok = toggles.has(el.role)
       ? observed.checked === (value === "true")
       : el.select
-        ? selectedLabel === value
+        ? act.kind === "select" && act.values
+          ? JSON.stringify([...(observed.selectedOptions ?? [])].sort()) === JSON.stringify([...act.values].sort())
+          : selectedLabel === value
         : el.slider
           ? Number(observed.value) === Number(value)
-          : String(observed.value) === value;
+          : String(observed.value) === value || (!!picked && observed.value === picked);
     Object.assign(entry, {
-      observed: toggles.has(el.role) ? observed.checked : el.select ? selectedLabel : observed.value,
+      observed: toggles.has(el.role)
+        ? observed.checked
+        : el.multiple
+          ? observed.selectedOptions
+          : el.select
+            ? selectedLabel
+            : observed.value,
       ok,
       verification_pending: false,
     });
@@ -1559,7 +1591,7 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
   }
   this.notes[step.save_as || `form${this.index + 1}`] = JSON.stringify(results);
   this.log("form", { fields: results, submitted: false });
-  return this.read(
+  const verified = await this.read(
     {
       ...step,
       kind: "verify",
@@ -1571,6 +1603,8 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
     },
     { requeue: step },
   );
+  // settingReadback: a fill step that checked out ends as any step does, once the page shows the values it set
+  return this.readBackFill && !verified.replan && !verified.fail ? this.readBackFill(step, verified) : verified;
 }
 
 // --- collectLite (a cost switch): a list read by Drex alone --------------------------------------------------------
