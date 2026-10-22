@@ -305,6 +305,75 @@ test("WebP screenshots are bounded from their header like PNG and JPEG; unreadab
   }
 });
 
+test("a base64 source outside an image content block is counted as text, never by its pixels", () => {
+  const png = Buffer.alloc(24 + 60000, 65);
+  png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png.writeUInt32BE(1, 16);
+  png.writeUInt32BE(1, 20);
+  const source = { type: "base64", media_type: "image/png", data: png.toString("base64") };
+  for (const body of [
+    {
+      model: "claude-haiku-5-5",
+      max_tokens: 100,
+      messages: [
+        { role: "user", content: "go" },
+        { role: "assistant", content: [{ type: "tool_use", id: "t", name: "act", input: { type: "image", source } }] },
+      ],
+    },
+    {
+      model: "claude-haiku-5-5",
+      max_tokens: 100,
+      tools: [{ name: "act", input_schema: { type: "object", default: { source } } }],
+      messages: [{ role: "user", content: "go" }],
+    },
+  ]) {
+    const budget = new HostedBudget(funding("100000000000"), llm);
+    try {
+      assert.equal(budget.reserve("llm", body).bound, BigInt(Buffer.byteLength(JSON.stringify(body)) + 4096 + 100));
+    } finally {
+      budget.dispose();
+    }
+  }
+  // a screenshot inside a tool result is still an image
+  const budget = new HostedBudget(funding("100000000000"), llm);
+  try {
+    const image = { type: "image", source };
+    const body = {
+      model: "claude-haiku-5-5",
+      max_tokens: 100,
+      messages: [{ role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [image] }] }],
+    };
+    const text = JSON.stringify(body, (key, value) => (key === "source" ? { type: "image" } : value));
+    assert.equal(budget.reserve("llm", body).bound, BigInt(Buffer.byteLength(text) + 4096 + 2243 + 100));
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("a PDF or content document is refused: its pages and images are not bounded by its bytes", () => {
+  const png = Buffer.alloc(24);
+  png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png.writeUInt32BE(8000, 16);
+  png.writeUInt32BE(8000, 20);
+  const image = { type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } };
+  const pdf = { type: "base64", media_type: "application/pdf", data: Buffer.alloc(6000, 65).toString("base64") };
+  const body = (document) => ({
+    model: "claude-haiku-5-5",
+    max_tokens: 100,
+    messages: [{ role: "user", content: [{ type: "document", ...document }] }],
+  });
+  const budget = new HostedBudget(funding("100000000000"), llm);
+  try {
+    assert.throws(() => budget.reserve("llm", body({ source: pdf })), /Unbounded funded document/);
+    const nested = { type: "content", content: [image, image] };
+    assert.throws(() => budget.reserve("llm", body({ source: nested })), /Unbounded funded document/);
+    const text = { type: "text", media_type: "text/plain", data: "notes" };
+    assert.ok(budget.reserve("llm", body({ source: text })).bound > 0n);
+  } finally {
+    budget.dispose();
+  }
+});
+
 test("usage is read across stream events and complete JSON replies, keeping cache tokens", () => {
   const stream =
     'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_read_input_tokens":5,"output_tokens":1}}}\n' +

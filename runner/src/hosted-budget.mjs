@@ -137,12 +137,26 @@ export class HostedBudget {
 // Images are bounded by decoded pixels, using the conservative cross-provider
 // patch bound also used by the extension (providers.ts), never base64 length.
 function inputBound(body) {
+  // only image blocks of a message's content (or a tool result's) are billed as images; a "source" anywhere else
+  // (a tool call's input, a tool schema) is text, counted by its bytes
+  const images = new Set();
+  const collect = (content) => {
+    if (Array.isArray(content)) for (const block of content) if (block?.type === "image") images.add(block);
+  };
+  for (const message of Array.isArray(body.messages) ? body.messages : []) {
+    collect(message?.content);
+    if (Array.isArray(message?.content))
+      for (const block of message.content) if (block?.type === "tool_result") collect(block.content);
+  }
   let imageTokens = 0;
-  const text = JSON.stringify(body, (key, value) => {
+  const text = JSON.stringify(body, function (key, value) {
     // a URL or uploaded file is billed by content the provider fetches, not by these bytes
     if (key === "source" && (value?.type === "url" || value?.type === "file"))
       throw new Error("Unbounded funded image.");
-    if (key !== "source" || value?.type !== "base64") return value;
+    // a PDF is billed per page, and a content document's images by pixels: neither is bounded by these bytes
+    if (key === "source" && this?.type === "document" && value?.type !== "text")
+      throw new Error("Unbounded funded document.");
+    if (key !== "source" || value?.type !== "base64" || !images.has(this)) return value;
     const bytes = Buffer.from(value.data, "base64");
     let width, height;
     if (
