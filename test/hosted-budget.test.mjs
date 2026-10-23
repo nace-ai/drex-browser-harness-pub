@@ -109,6 +109,20 @@ test("a backwards clock correction cannot extend the funded runtime when a call 
   }
 });
 
+test("funded time already counted after a forward clock jump is not given back when the clock returns", () => {
+  let now = Date.now();
+  const budget = new HostedBudget({ ...funding("100000000"), started_at_ms: now }, { now: () => now });
+  try {
+    now += 5000;
+    const seen = budget.elapsed;
+    assert.ok(seen >= 5n);
+    now -= 5000;
+    assert.ok(budget.elapsed >= seen, "elapsed funded time went backwards");
+  } finally {
+    budget.dispose();
+  }
+});
+
 test("a future start is refused before any provider call", () => {
   const now = Date.now();
   const spec = { ...funding(), started_at_ms: now + 20000 };
@@ -345,6 +359,7 @@ test("WebP screenshots are bounded from their header like PNG and JPEG; unreadab
   }
   const png = Buffer.alloc(24);
   png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png.write("IHDR", 12, "latin1");
   png.writeUInt32BE(1280, 16);
   png.writeUInt32BE(800, 20);
   // SOI, an APP0 and a DHT (C4, not a frame) before the SOF0 that gives the size
@@ -376,6 +391,10 @@ test("WebP screenshots are bounded from their header like PNG and JPEG; unreadab
       () => budget.reserve("llm", request("image/png", png.subarray(0, 20).toString("base64"))),
       /Unbounded/,
     );
+    // a decoder reads the size from IHDR, never from a first chunk of another type
+    const unnamed = Buffer.from(png);
+    unnamed.write("tEXt", 12, "latin1");
+    assert.throws(() => budget.reserve("llm", request("image/png", unnamed.toString("base64"))), /Unbounded/);
   } finally {
     budget.dispose();
   }
@@ -411,11 +430,23 @@ test("a JPEG's size is read from the frame header a decoder reaches, past fill b
       budget.dispose();
     }
   }
+  // a stuffed zero, a second start or an end marker carries no length: read as one, it would jump to a decoy frame
+  const budget = new HostedBudget(funding("100000000"), llm);
+  try {
+    for (const marker of [0x00, 0xd8, 0xd9]) {
+      // its "length" spans the frame a decoder reads and lands on the 1x1 decoy after it
+      const image = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, marker, 0, 16]), sof(1280, 800), sof(1, 1)]);
+      assert.throws(() => budget.reserve("llm", request(image.toString("base64"))), /Unbounded funded image/);
+    }
+  } finally {
+    budget.dispose();
+  }
 });
 
 test("a base64 source outside an image content block is counted as text, never by its pixels", () => {
   const png = Buffer.alloc(24 + 60000, 65);
   png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png.write("IHDR", 12, "latin1");
   png.writeUInt32BE(1, 16);
   png.writeUInt32BE(1, 20);
   const source = { type: "base64", media_type: "image/png", data: png.toString("base64") };
@@ -461,6 +492,7 @@ test("a base64 source outside an image content block is counted as text, never b
 test("a PDF or content document is refused: its pages and images are not bounded by its bytes", () => {
   const png = Buffer.alloc(24);
   png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  png.write("IHDR", 12, "latin1");
   png.writeUInt32BE(8000, 16);
   png.writeUInt32BE(8000, 20);
   const image = { type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } };

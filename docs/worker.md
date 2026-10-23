@@ -154,7 +154,9 @@ are pinned for, may have no top-level fields other than those the extension
 sends (so no MCP servers, container, model fallbacks, speed, service tier,
 region, compaction or context management), and may not use server tools, URL and
 file sources, or a document other than plain text (PDFs and content documents
-are billed by pages and pixels its bytes do not bound). Requests outside these bounds are refused. Sandbox
+are billed by pages and pixels its bytes do not bound). A request outside these bounds is refused before it is
+sent and holds nothing: the extension gets a transport error and the run continues. A request the remaining funds
+cannot cover is a budget stop. Sandbox
 time uses the same budget. The remaining funds and `expires_at_ms` determine an
 AbortSignal deadline for in-flight calls and the browser, alongside `max_seconds`.
 Ten sandbox seconds of funds, and the last ten seconds before `expires_at_ms`,

@@ -207,6 +207,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
         out: directory,
         // the extension's budget starts after Chromium and the start page: it must end before this worker's deadline
         endsAt: endsAt - REPORT_MS,
+        launchDeadline: performance.now() + Math.max(1, Math.min(endsAt - Date.now(), budget.until() - budget.now())),
         limits: {
           maxCostUsd: spec.limits.max_cost_usd,
           maxSeconds: spec.limits.max_seconds,
@@ -253,9 +254,12 @@ export async function runWorker(env = process.env, { signal } = {}) {
     };
   } finally {
     budget.beginCleanup();
-    await fs.rm(directory, { recursive: true, force: true });
+    await fs.rm(directory, { recursive: true, force: true }).catch((error) => {
+      // the cleanup timer must not keep the sandbox alive until the grant ends
+      budget.dispose();
+      throw error;
+    });
   }
-  if (budget.held > 0n && !budget.signal.aborted) budget.stop(false);
   if (budget.signal.aborted && !budget.exhausted)
     result.outcome = { kind: "internal_error", reason: "A provider outcome could not be confirmed." };
   if (budget.exhausted) result.outcome = { kind: "limit_reached", reason: "Funded browser budget exhausted." };

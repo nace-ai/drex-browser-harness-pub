@@ -193,7 +193,9 @@ function inputBound(body) {
     if (
       value.media_type === "image/png" &&
       bytes.length >= 24 &&
-      bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+      // a decoder takes the size from IHDR, which must be the first chunk
+      bytes.toString("latin1", 12, 16) === "IHDR"
     ) {
       width = bytes.readUInt32BE(16);
       height = bytes.readUInt32BE(20);
@@ -211,6 +213,8 @@ function inputBound(body) {
           i += 2;
           continue;
         }
+        // a stuffed zero, a second start or an early end has no length: a decoder skips or rejects it, so refuse
+        if (marker === 0 || marker === 216 || marker === 217) break;
         if (marker >= 192 && marker <= 207 && ![196, 200, 204].includes(marker)) {
           height = bytes.readUInt16BE(i + 5);
           width = bytes.readUInt16BE(i + 7);

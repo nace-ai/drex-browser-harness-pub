@@ -129,7 +129,7 @@ export const newRunId = () => `lrun_${Date.now().toString(36)}${crypto.randomByt
  * proxy: the worker's origin proxy. The browser is then restricted: no site service workers, and none of the worker's
  * keys or callback secret in its processes' environment.
  */
-export async function launch(userDataDir, { headless, extension, handleSignals = true, proxy }) {
+export async function launch(userDataDir, { headless, extension, handleSignals = true, proxy, timeout }) {
   const { chromium } = await import("playwright");
   // e2e/run.py: no viewport emulation. A real 1280x800 page plus the toolbar, so the agent's screenshots always match
   // the page's innerWidth/innerHeight (under emulation a front tab's screenshot was cropped or stale). Planned runs
@@ -147,6 +147,7 @@ export async function launch(userDataDir, { headless, extension, handleSignals =
     return await chromium.launchPersistentContext(userDataDir, {
       channel: "chromium", // the full Chromium: the headless shell can't load extensions
       headless,
+      timeout,
       viewport: null,
       args,
       handleSIGINT: handleSignals,
@@ -240,7 +241,7 @@ export function progressLine(type, e) {
 
 /**
  * Runs one task. opts: {task, url, profile, tempProfile, headed, limits {maxCostUsd, maxSeconds, maxLlmCalls}, model,
- * allowRisky, out, allowedOrigins, endsAt}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. endScreen: false skips the end screenshot and the needs_user look (their time is spent for nothing when the caller discards them). onCleanup(): called once the run's result is in, before the browser closes. handleSignals: see launch().
+ * allowRisky, out, allowedOrigins, endsAt, launchDeadline}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. endScreen: false skips the end screenshot (its time is spent for nothing when the caller discards it); the needs_user look still runs, as it decides the outcome. onCleanup(): called once the run's result is in, before the browser closes. handleSignals: see launch().
  * Returns the result (resultOf's shape). Throws RunnerError for what stops a run from starting.
  */
 export async function runTask(
@@ -271,6 +272,9 @@ export async function runTask(
   // one close for the abort and the finally: a second ctx.close() returns before the first has finished, and a temporary
   // profile removed then is written back by the Chromium still shutting down
   let closing = null;
+  // a launch still under way when the run was cancelled: launch() cannot be interrupted, so the browser it starts is
+  // closed, and its profile released, once it is up
+  let late = null;
   const close = () => (closing ??= ctx.close().catch(() => {}));
   // a cancel before the run has started (Chromium starting, the start page loading) closes the browser at once; once
   // the run is going, the loop below asks the agent to stop so its result is kept
@@ -288,11 +292,25 @@ export async function runTask(
     const dir = temp ? temp.dir : profileDir(opts.profile, env);
     fs.mkdirSync(dir, { recursive: true });
     if (transport) network = await browserProxy(opts.allowedOrigins, { allowLocal });
-    ctx = await launch(dir, {
+    const launching = launch(dir, {
       headless: !opts.headed,
       extension,
       handleSignals,
       proxy: network?.url,
+      // Playwright kills an unfinished launch on timeout, even before a context exists.
+      timeout:
+        opts.launchDeadline === undefined ? undefined : Math.max(1, Math.ceil(opts.launchDeadline - performance.now())),
+    });
+    // a cancel (a funding stop included) while Chromium starts ends the run now, not once Chromium is up
+    const halt = AbortSignal.any([signal, killSignal].filter(Boolean));
+    ctx = await new Promise((resolve, reject) => {
+      const cancel = () => {
+        late = launching;
+        reject(new RunnerError("cancelled", "The run was cancelled before it started."));
+      };
+      if (halt.aborted) return cancel();
+      halt.addEventListener("abort", cancel, { once: true });
+      launching.then(resolve, reject).finally(() => halt.removeEventListener("abort", cancel));
     });
     if (transport) await restrictPages(ctx, opts.allowedOrigins);
     // a forced exit (a second Ctrl-C) removes the temporary profile after Playwright's exit handler, registered by
@@ -431,8 +449,8 @@ export async function runTask(
       const error = await panel.evaluate(() => globalThis.naceRunner.state.refused?.message ?? null).catch(() => null);
       if (error) run = { status: "error", message: error };
     }
-    const page = killSignal?.aborted || !endScreen ? null : agentPage(ctx, run?.report?.url);
-    return await finish({ run, out, id, opts, created, started, page, ended });
+    const page = killSignal?.aborted ? null : agentPage(ctx, run?.report?.url);
+    return await finish({ run, out, id, opts, created, started, page, ended, screenshot: endScreen });
   } catch (e) {
     if (signal?.aborted && !(e instanceof RunnerError))
       throw new RunnerError("cancelled", "The run was cancelled before it started.");
@@ -443,13 +461,22 @@ export async function runTask(
     killSignal?.removeEventListener("abort", onKill);
     if (ctx) await close();
     await network?.close();
-    release();
-    temp?.remove(); // after the browser has closed: Chromium writes to its profile until then
+    // after the browser has closed: Chromium writes to its profile until then
+    const done = () => {
+      release();
+      temp?.remove();
+    };
+    if (late)
+      void late
+        .then((c) => c.close())
+        .catch(() => {})
+        .finally(done);
+    else done();
   }
 }
 
 /** Saves the run log and the end screen, and makes the result. */
-async function finish({ run, out, id, opts, created, started, page, ended }) {
+async function finish({ run, out, id, opts, created, started, page, ended, screenshot = true }) {
   const artifacts = [];
   const look = page && run?.status === "needs_user" ? await lookAt(page) : {};
   if (run?.record) {
@@ -458,7 +485,7 @@ async function finish({ run, out, id, opts, created, started, page, ended }) {
     artifacts.push({ kind: "run_log", path: file });
   }
   let shot = null;
-  if (page) {
+  if (page && screenshot) {
     const file = path.join(out, "final.png");
     shot = await page
       .screenshot({ path: file, timeout: 15000 })

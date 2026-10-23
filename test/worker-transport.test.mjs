@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { launch, extensionDir, runTask } from "../runner/src/run.mjs";
 import { connectTransport, modelTransport, restrictPages } from "../runner/src/worker-transport.mjs";
 import { browserProxy } from "../runner/src/worker-network.mjs";
+import { runWorker } from "../runner/src/worker.mjs";
 
 async function why() {
   try {
@@ -250,6 +251,107 @@ test(
       site.closeAllConnections();
       await new Promise((resolve) => site.close(resolve));
       await fs.rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a funded startup deadline aborts Chromium launch before any page or model work",
+  { skip, timeout: 15000 },
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "funded-launch-"));
+    let cleanups = 0;
+    const began = performance.now();
+    try {
+      await assert.rejects(
+        runTask(
+          {
+            task: "Never execute",
+            url: "http://127.0.0.1:1/",
+            tempProfile: true,
+            out: dir,
+            launchDeadline: performance.now() - 1,
+            limits: { maxSeconds: 1 },
+          },
+          {
+            env: { DREX_API_KEY: "fixture", ANTHROPIC_API_KEY: "fixture" },
+            handleSignals: false,
+            onCleanup: () => cleanups++,
+          },
+        ),
+        { code: "browser_failed" },
+      );
+      assert.equal(cleanups, 1);
+      assert.ok(performance.now() - began < 10000, "launch outlived its deadline");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a run whose provider call gets a gateway error reports internal_error with the call's liability in its bound",
+  { skip, timeout: 60000 },
+  async () => {
+    const site = http.createServer((_req, res) => res.end("<title>Funding fixture</title><p>Find the title</p>"));
+    let calls = 0;
+    // a gateway 502 may follow billed provider work: its outcome is unknown
+    const model = http.createServer((req, res) => {
+      calls++;
+      req.resume();
+      res.writeHead(502).end("{}");
+    });
+    const received = [];
+    const callback = http.createServer(async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      received.push(JSON.parse(body));
+      res.end("{}");
+    });
+    for (const server of [site, model, callback])
+      await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    // a page origin may not share the Drex or LLM host
+    const url = `http://localhost:${site.address().port}`;
+    const modelBase = `http://127.0.0.1:${model.address().port}`;
+    const base = `http://127.0.0.1:${callback.address().port}`;
+    try {
+      const event = await runWorker({
+        DREX_PROTOCOL_VERSION: "2",
+        DREX_RUN_ID: "brun_" + "a".repeat(32),
+        DREX_CALLBACK_SECRET: "whsec_" + Buffer.alloc(32, 1).toString("base64"),
+        DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`,
+        DREX_BASE_URL: base,
+        LLM_BASE_URL: modelBase,
+        DREX_WORKER_ALLOW_LOCAL: "1",
+        DREX_RUN_SPEC: JSON.stringify({
+          task: "Read the title.",
+          start_url: `${url}/`,
+          allowed_origins: [url],
+          answer_schema: null,
+          risky_actions: "deny",
+          limits: { max_cost_usd: 1, max_seconds: 60, max_llm_calls: 5 },
+          artifacts: { screenshots: false, har: false },
+          funding: {
+            budget_nusd: "1000000000000",
+            started_at_ms: Date.now(),
+            expires_at_ms: Date.now() + 60000,
+            // free sandbox seconds: the bound is then exactly the retained reservation
+            prices: { drex_input: "1", llm_input: "1", llm_output: "1", browser_second: "0" },
+          },
+        }),
+      });
+      assert.ok(calls >= 1);
+      assert.equal(received.length, 1);
+      assert.deepEqual(received[0].data, event.data);
+      assert.equal(event.data.outcome.kind, "internal_error");
+      assert.equal(event.data.budget_exhausted, false);
+      assert.ok(BigInt(event.data.resource_bound_nusd) > 0n, "the unknown call's reservation was dropped");
+      assert.deepEqual(event.data.usage, { drex_input_tokens: 0, llm_input_tokens: 0, llm_output_tokens: 0 });
+    } finally {
+      for (const server of [site, model, callback]) {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+      }
     }
   },
 );
