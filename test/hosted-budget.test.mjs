@@ -84,6 +84,30 @@ test("a call reserved after the grant's end is refused and holds nothing", () =>
   }
 });
 
+test("a backwards clock correction cannot extend the funded runtime when a call rearms it", async () => {
+  let now = Date.now();
+  const spec = { ...funding("100000000"), started_at_ms: now, expires_at_ms: now + 10200 };
+  const budget = new HostedBudget(spec, { now: () => now });
+  try {
+    now -= 60000;
+    budget.reserve("drex", decision);
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("funding cutoff was extended")), 1500);
+      budget.signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        { once: true },
+      );
+    });
+    assert.equal(budget.exhausted, true);
+  } finally {
+    budget.dispose();
+  }
+});
+
 test("usage above its reservation stops the run as exhausted; unreadable usage keeps the liability", () => {
   const over = new HostedBudget(funding("100000000"));
   try {
@@ -382,6 +406,27 @@ test("usage is read across stream events and complete JSON replies, keeping cach
     'data: {"type":"message_delta","usage":{"input_tokens":10,"output_tokens":7}}\n' +
     'data: {"type":"message_stop"}\n';
   assert.deepEqual(providerUsage("llm", stream), { input: 15, output: 7 });
+  const split = (start, delta) =>
+    `data: {"type":"message_start","message":{"usage":${start}}}\n` +
+    `data: {"type":"message_delta","usage":${delta}}\n` +
+    'data: {"type":"message_stop"}\n';
+  assert.deepEqual(
+    providerUsage(
+      "llm",
+      split('{"input_tokens":10,"output_tokens":1}', '{"cache_read_input_tokens":100,"output_tokens":7}'),
+    ),
+    { input: 110, output: 7 },
+  );
+  assert.deepEqual(
+    providerUsage(
+      "llm",
+      split(
+        '{"input_tokens":10,"cache_read_input_tokens":100,"output_tokens":1}',
+        '{"input_tokens":20,"output_tokens":7}',
+      ),
+    ),
+    { input: 120, output: 7 },
+  );
   const reply = {
     stop_reason: "end_turn",
     usage: { input_tokens: 3, cache_creation_input_tokens: 2, output_tokens: 4 },
@@ -440,11 +485,18 @@ test("a funded LLM call is refused for another model or for work its body does n
   });
   try {
     budget.reserve("llm", call({ tools: [{ name: "click", input_schema: { type: "object" } }] }));
+    budget.reserve("llm", call({ system: [], output_config: { effort: "low" }, thinking: { type: "disabled" } }));
     for (const body of [
       call({ model: "claude-opus-5-5" }),
       call({ tools: [{ type: "web_fetch_20250910", name: "web_fetch" }] }),
       call({ mcp_servers: [] }),
       call({ container: "c" }),
+      call({ fallbacks: "default" }),
+      call({ speed: "fast" }),
+      call({ service_tier: "auto" }),
+      call({ inference_geo: "us" }),
+      call({ compaction: { type: "auto" } }),
+      call({ context_management: { edits: [{ type: "compact_20260112" }] } }),
       call({
         messages: [
           { role: "user", content: [{ type: "image", source: { type: "url", url: "https://example.com/a.png" } }] },
@@ -460,6 +512,42 @@ test("a funded LLM call is refused for another model or for work its body does n
     assert.throws(() => unpinned.reserve("llm", call()), /Unsupported funded LLM request/);
   } finally {
     unpinned.dispose();
+  }
+});
+
+test("a call's reservation is its exact worst case; unbounded or unsupported bodies are refused", () => {
+  const budget = new HostedBudget(funding("100000000000"), llm);
+  try {
+    const three = { ...decision, questions: { a: {}, b: {}, c: {} } };
+    assert.equal(budget.reserve("drex", three).bound, 3n * 262144n);
+    for (const body of [{ ...decision, model: "drex-mini" }, { ...decision, questions: {} }, { model: "drex-max" }])
+      assert.throws(() => budget.reserve("drex", body), /Unsupported funded Drex request/);
+    const llmCall = (max_tokens) => ({ model: llm.llmModel, max_tokens, messages: [] });
+    budget.reserve("llm", llmCall(1));
+    budget.reserve("llm", llmCall(4096));
+    for (const max_tokens of [0, 4097, 1.5, undefined, "100"])
+      assert.throws(() => budget.reserve("llm", llmCall(max_tokens)), /Unbounded funded LLM output/);
+    const file = { type: "image", source: { type: "file", file_id: "f" } };
+    assert.throws(
+      () => budget.reserve("llm", { ...llmCall(100), messages: [{ role: "user", content: [file] }] }),
+      /Unbounded funded image/,
+    );
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("a free browser second leaves only the grant's end to stop the run", () => {
+  const spec = funding("1000000");
+  spec.prices = { ...spec.prices, browser_second: "0" };
+  const budget = new HostedBudget(spec, llm);
+  try {
+    assert.equal(budget.signal.aborted, false);
+    assert.equal(budget.until(), spec.expires_at_ms - 10000);
+    budget.reserve("drex", decision);
+    assert.equal(budget.held, 262144n);
+  } finally {
+    budget.dispose();
   }
 });
 

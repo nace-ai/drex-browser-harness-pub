@@ -147,7 +147,9 @@ framing allowance and a pixel bound for each PNG, JPEG or WebP image in a
 message's or tool result's content (its header must give both sides, each at
 most 20,000 pixels; other base64 bytes count as text), plus `max_tokens` (at
 most 4096). An LLM call must name the worker's model, the one the LLM prices
-are pinned for, and may not use server tools, MCP servers, a container, URL and
+are pinned for, may have no top-level fields other than those the extension
+sends (so no MCP servers, container, model fallbacks, speed, service tier,
+region, compaction or context management), and may not use server tools, URL and
 file sources, or a document other than plain text (PDFs and content documents
 are billed by pages and pixels its bytes do not bound). Requests outside these bounds are refused. Sandbox
 time uses the same budget. The remaining funds and `expires_at_ms` determine an
@@ -169,7 +171,11 @@ seconds spent sending the report are not in it. When no funds are left, that
 work or customer usage debt. `usage` is the provider-reported usage Node metered; LLM input
 includes cache read and creation tokens. A budget stop reports
 `outcome.kind: "limit_reached"` with `budget_exhausted: true`; Drex cancels the
-whole request free and releases its wallet hold once. An unconfirmed provider
+whole request free and releases its wallet hold once. A call the budget stop
+itself cuts off keeps its reservation in `resource_bound_nusd` and stays a
+budget stop. `limit_reached` with `budget_exhausted: false` is a run limit
+(`max_seconds` with no provider call in flight, or the extension's own time,
+cost or LLM-call limit), not the funded ceiling. An unconfirmed provider
 outcome reports `internal_error` with `budget_exhausted: false`, its reservation
 included in `resource_bound_nusd`. That includes a call still in flight when
 `max_seconds`, a Drex cancellation or the end of the run cuts it off: the

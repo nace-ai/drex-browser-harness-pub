@@ -1,7 +1,7 @@
 import { providerUsage } from "./hosted-budget.mjs";
 // The extension gets an in-process RPC channel, never provider credentials or a
 // localhost HTTP proxy. Only its service worker can open this extension port;
-// only the runner's extension page has the Playwright binding back to Node.
+// only the runner's extension page has the Playwright bindings (fetch and abort) back to Node.
 const PORT = "nace-worker-fetch";
 const MAX_RESPONSE = 8 * 1024 * 1024;
 

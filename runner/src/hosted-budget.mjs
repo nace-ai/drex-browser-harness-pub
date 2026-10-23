@@ -6,9 +6,30 @@
 // signing and sending the report
 export const CLEANUP_SECONDS = 10;
 
+// the top-level fields of a funded LLM request (those the extension's Anthropic client sends)
+const LLM_FIELDS = new Set([
+  "model",
+  "max_tokens",
+  "system",
+  "messages",
+  "tools",
+  "tool_choice",
+  "thinking",
+  "output_config",
+  "temperature",
+  "top_k",
+  "top_p",
+  "stop_sequences",
+  "stream",
+]);
+
 export class HostedBudget {
   constructor(funding, { now = Date.now, cleanupSeconds = CLEANUP_SECONDS, llmModel } = {}) {
-    this.now = now;
+    // Wall-clock corrections must not give a running sandbox more funded time.
+    const monotonicStart = performance.now();
+    const wallStart = Math.max(now(), funding.started_at_ms);
+    let last = wallStart;
+    this.now = () => (last = Math.max(last, now(), wallStart + performance.now() - monotonicStart));
     // the model the pinned LLM prices are for: a funded call to any other model is refused
     this.llmModel = llmModel;
     this.start = funding.started_at_ms;
@@ -72,12 +93,11 @@ export class HostedBudget {
     } else {
       if (!Number.isSafeInteger(body.max_tokens) || body.max_tokens < 1 || body.max_tokens > 4096)
         throw new Error("Unbounded funded LLM output.");
-      // server tools, MCP servers and containers bill work the body does not bound
+      // Unknown fields may enable model fallbacks or extra provider passes; only the extension contract is funded.
       if (
         !this.llmModel ||
         body.model !== this.llmModel ||
-        "mcp_servers" in body ||
-        "container" in body ||
+        Object.keys(body).some((key) => !LLM_FIELDS.has(key)) ||
         (body.tools !== undefined &&
           (!Array.isArray(body.tools) || body.tools.some((t) => t?.type !== undefined && t?.type !== "custom")))
       )
@@ -213,6 +233,8 @@ export function providerUsage(kind, body) {
       return { input: value.usage.input_tokens, output: 0 };
     }
     let input = null,
+      cacheRead = 0,
+      cacheCreation = 0,
       output = null;
     const json = body.trim().startsWith("{");
     const values = json
@@ -225,18 +247,18 @@ export function providerUsage(kind, body) {
     // its reservation from the initial message_start usage alone.
     if (!json && !values.some((v) => v.type === "message_stop")) return null;
     if (json && !values[0].stop_reason) return null;
-    // Usage is cumulative across events; a later event may omit the cache counts an earlier one carried.
+    // Each usage counter is cumulative and may arrive in a different event, so merge them individually.
     for (const value of values) {
       const usage = value.message?.usage ?? value.usage;
       if (!usage) continue;
-      if (Number.isSafeInteger(usage.input_tokens)) {
-        const total =
-          usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-        input = Math.max(input ?? 0, total);
-      }
+      if (Number.isSafeInteger(usage.input_tokens)) input = Math.max(input ?? 0, usage.input_tokens);
+      if (Number.isSafeInteger(usage.cache_read_input_tokens))
+        cacheRead = Math.max(cacheRead, usage.cache_read_input_tokens);
+      if (Number.isSafeInteger(usage.cache_creation_input_tokens))
+        cacheCreation = Math.max(cacheCreation, usage.cache_creation_input_tokens);
       if (Number.isSafeInteger(usage.output_tokens)) output = Math.max(output ?? 0, usage.output_tokens);
     }
-    return input === null || output === null ? null : { input, output };
+    return input === null || output === null ? null : { input: input + cacheRead + cacheCreation, output };
   } catch {
     return null;
   }
