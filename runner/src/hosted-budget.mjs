@@ -267,7 +267,9 @@ export function providerUsage(kind, body) {
         cacheRead = Math.max(cacheRead, usage.cache_read_input_tokens);
       if (Number.isSafeInteger(usage.cache_creation_input_tokens))
         cacheCreation = Math.max(cacheCreation, usage.cache_creation_input_tokens);
-      if (Number.isSafeInteger(usage.output_tokens)) output = Math.max(output ?? 0, usage.output_tokens);
+      // message_start output is only the initial count; the final total arrives in message_delta.
+      if (Number.isSafeInteger(usage.output_tokens) && (json || value.type === "message_delta"))
+        output = Math.max(output ?? 0, usage.output_tokens);
     }
     return input === null || output === null ? null : { input: input + cacheRead + cacheCreation, output };
   } catch {

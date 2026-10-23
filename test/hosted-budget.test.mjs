@@ -223,6 +223,16 @@ test("truncated provider SSE never releases the unknown liability", () => {
     ),
     { input: 12, output: 4 },
   );
+  const generated = 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n';
+  assert.equal(
+    providerUsage(
+      "llm",
+      start.replace('"output_tokens":0', '"output_tokens":1') +
+        generated +
+        'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\ndata: {"type":"message_stop"}\n',
+    ),
+    null,
+  );
 });
 
 test("a complete HTTP error answer is released so the extension can retry it; a 2xx settles its usage", async () => {
