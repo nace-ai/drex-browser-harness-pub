@@ -201,6 +201,16 @@ function inputBound(body) {
       for (let i = 2; i + 9 < bytes.length;) {
         if (bytes[i] !== 255) break;
         const marker = bytes[i + 1];
+        // walk markers as a decoder does: fill bytes and standalone markers carry no length, so reading one there
+        // would jump to a different (possibly crafted) frame header than the one the provider decodes
+        if (marker === 255) {
+          i++;
+          continue;
+        }
+        if (marker === 1 || (marker >= 208 && marker <= 215)) {
+          i += 2;
+          continue;
+        }
         if (marker >= 192 && marker <= 207 && ![196, 200, 204].includes(marker)) {
           height = bytes.readUInt16BE(i + 5);
           width = bytes.readUInt16BE(i + 7);

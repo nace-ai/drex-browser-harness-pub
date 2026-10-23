@@ -35,7 +35,9 @@ With a valid run id, callback key and callback URL, any refused configuration
 as `internal_error` ("Browser worker refused its configuration.") before the
 entry exits 1; otherwise nothing can be reported and Drex times the run out.
 `DREX_EXPECTED_WORKER_SHA`, when provided, requires a matching clean package.
-The current worker uses the default Anthropic model; the LLM URL must implement
+The current worker uses the default Anthropic model (`DEFAULT_MODEL`), the one
+Drex pins LLM prices for: a funded call naming any other model is refused, so
+changing it needs matching Drex prices. The LLM URL must implement
 the Anthropic messages API. Switching to another provider is not implemented.
 
 After `npm ci && npm run build:release`, package with `npm pack -w runner`.
@@ -119,7 +121,8 @@ first release the rollback is to stop admissions and retain cleanup/callback
 configuration for existing runs. The manifest also records `protocol_version`:
 a worker accepts only its own protocol version, so Drex's protocol version and
 the selected `BROWSER_WORKER_SHA` change together, and rolling back to a v1
-template also needs Drex to send v1 (or to stop admissions).
+template also needs Drex to send v1 (or to stop admissions). A v1 worker has no
+funded boundary, so stopping admissions is the safer rollback.
 
 Before enabling the feature, test actual API → sandbox → browser → signed
 callback → settlement → kill on a reachable test environment. A manually
@@ -178,7 +181,7 @@ budget stop. `limit_reached` with `budget_exhausted: false` is a run limit
 cost or LLM-call limit), not the funded ceiling. An unconfirmed provider
 outcome reports `internal_error` with `budget_exhausted: false`, its reservation
 included in `resource_bound_nusd`. That includes a call still in flight when
-`max_seconds`, a Drex cancellation or the end of the run cuts it off: the
+`max_seconds`, a Drex cancellation, the extension's own run limits or the end of the run cuts it off: the
 outcome is then `internal_error`, not `limit_reached` or `cancelled`. Usage
 above a call's reservation is a budget stop. A refused configuration's report
 has neither funding field. The operational guard still counts consumed

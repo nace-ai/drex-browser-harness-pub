@@ -381,6 +381,38 @@ test("WebP screenshots are bounded from their header like PNG and JPEG; unreadab
   }
 });
 
+test("a JPEG's size is read from the frame header a decoder reaches, past fill bytes and standalone markers", () => {
+  const request = (data) => ({
+    model: "claude-haiku-5-5",
+    max_tokens: 100,
+    messages: [
+      { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data } }] },
+    ],
+  });
+  const sof = (width, height) => {
+    const frame = Buffer.from([0xff, 0xc0, 0, 17, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0]);
+    frame.writeUInt16BE(height, 5);
+    frame.writeUInt16BE(width, 7);
+    return frame;
+  };
+  // a fill byte before the real 1280x800 frame: read as a marker with a length, it would jump to the 1x1 decoy
+  const filled = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), sof(1280, 800)]);
+  const decoy = Buffer.concat([filled, Buffer.alloc(2 + 2 + filled.readUInt16BE(4) - filled.length), sof(1, 1)]);
+  // a standalone restart marker (no length) before the frame
+  const restart = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xd0]), sof(1280, 800)]);
+  const tokens = Math.ceil(40 * 25 * 2.46 + 2240);
+  for (const image of [decoy, restart]) {
+    const budget = new HostedBudget(funding("100000000"), llm);
+    try {
+      const body = request(image.toString("base64"));
+      const text = JSON.stringify(body, (key, value) => (key === "source" ? { type: "image" } : value));
+      assert.equal(budget.reserve("llm", body).bound, BigInt(Buffer.byteLength(text) + 4096 + tokens + 100));
+    } finally {
+      budget.dispose();
+    }
+  }
+});
+
 test("a base64 source outside an image content block is counted as text, never by its pixels", () => {
   const png = Buffer.alloc(24 + 60000, 65);
   png.set([137, 80, 78, 71, 13, 10, 26, 10]);

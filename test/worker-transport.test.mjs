@@ -213,6 +213,7 @@ test(
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "funded-stop-"));
     const stop = new AbortController();
     let called = 0;
+    let cleanups = 0;
     let stoppedAt;
     try {
       await runTask(
@@ -226,8 +227,9 @@ test(
         },
         {
           env: { DREX_API_KEY: "fixture", ANTHROPIC_API_KEY: "fixture" },
-          signal: stop.signal,
+          // only the kill: no cooperative stop is ever asked for, so the run can end only by Chromium closing
           killSignal: stop.signal,
+          onCleanup: () => cleanups++,
           allowLocal: true,
           handleSignals: false,
           transport: async () => {
@@ -239,10 +241,9 @@ test(
             return new Promise(() => {}); // provider never answers; browser shutdown must not wait for it
           },
         },
-      ).catch((error) => {
-        assert.equal(error.code, "cancelled");
-      });
+      ).catch(() => {});
       assert.equal(called, 1);
+      assert.equal(cleanups, 1);
       assert.ok(performance.now() - stoppedAt < 5000, "funding stop waited for cooperative teardown");
     } finally {
       stop.abort();
