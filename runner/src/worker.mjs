@@ -121,8 +121,9 @@ export async function deliver(config, event, { timeoutMs = DELIVERY_MS } = {}) {
   const body = JSON.stringify(event);
   if (Buffer.byteLength(body) > 1_000_000) throw new Error("Worker report exceeds callback limit.");
   const id = `msg_${randomUUID()}`;
-  const deadline = Date.now() + timeoutMs;
-  for (let attempt = 0; Date.now() < deadline; attempt++) {
+  // monotonic: a wall-clock correction must not extend the retry window
+  const deadline = performance.now() + timeoutMs;
+  for (let attempt = 0; performance.now() < deadline; attempt++) {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = createHmac("sha256", config.callbackKey).update(`${id}.${timestamp}.${body}`).digest("base64");
     let response;
@@ -137,7 +138,7 @@ export async function deliver(config, event, { timeoutMs = DELIVERY_MS } = {}) {
           "webhook-signature": `v1,${signature}`,
         },
         body,
-        signal: AbortSignal.timeout(Math.max(1, Math.min(5000, deadline - Date.now()))),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(5000, Math.ceil(deadline - performance.now())))),
       });
     } catch {
       /* retry transient network failures, with the same event id/body */
@@ -147,7 +148,7 @@ export async function deliver(config, event, { timeoutMs = DELIVERY_MS } = {}) {
       if (response.ok) return;
       if (response.status < 500) throw new Error(`Callback refused (${response.status}).`);
     }
-    const wait = Math.min(250 * 2 ** Math.min(attempt, 4), 4000, deadline - Date.now());
+    const wait = Math.min(250 * 2 ** Math.min(attempt, 4), 4000, deadline - performance.now());
     if (wait > 0) await delay(wait);
   }
   throw new Error("Callback delivery deadline exceeded.");
@@ -219,6 +220,8 @@ export async function runWorker(env = process.env, { signal } = {}) {
         // a funding stop is billed by the second: Chromium closes at once, without waiting for the agent's result,
         // which Drex discards for a budget stop or an unconfirmed provider outcome anyway
         killSignal: budget.signal,
+        // the report carries no artifacts: an end screenshot would only spend funded seconds
+        endScreen: false,
         onCleanup: () => budget.beginCleanup(),
         handleSignals: false,
         allowLocal: config.allowLocal,

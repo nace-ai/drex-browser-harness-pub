@@ -59,7 +59,7 @@ the agent knows any other address is blocked.
 Only the extension worker uses a private extension port to its runner-owned
 extension page. That page alone exposes two Playwright bindings to Node: one
 accepts only the two model operations, never arbitrary destination URLs or
-headers; the other only cancels such a call, by its id, when its port closes. Node performs the request; in E2B, the egress proxy inserts provider
+headers; the other only cancels such a call, by its id, when its port closes (and every call in flight is cancelled when the extension page closes). Node performs the request; in E2B, the egress proxy inserts provider
 credentials. The extension receives placeholders and responses. Chromium's
 processes start without the worker's `DREX_*`, `E2B_*`, `*_API_KEY`, secret or
 token variables. A model call has no fixed timeout of its own: the extension
@@ -145,7 +145,7 @@ must use `drex-max` with at least one question and holds 262,144 tokens per
 question; an LLM call holds its UTF-8 body bytes, a
 framing allowance and a pixel bound for each PNG, JPEG or WebP image in a
 message's or tool result's content (its header must give both sides, each at
-most 20,000 pixels; other base64 bytes count as text), plus `max_tokens` (at
+most 20,000 pixels; an image block in any other format, or with an unreadable header, is refused; base64 outside an image block counts as text), plus `max_tokens` (at
 most 4096). An LLM call must name the worker's model, the one the LLM prices
 are pinned for, may have no top-level fields other than those the extension
 sends (so no MCP servers, container, model fallbacks, speed, service tier,
@@ -161,7 +161,7 @@ left, so Drex hears of the run and stops the sandbox), not for the full
 30-second delivery window. An uncertain provider response retains its
 reservation and stops the run. No provider request is reserved or sent after
 that signal, and Chromium is closed at once, without asking the agent to stop or
-reading its result and end screen.
+reading its result and end screen. A hosted run never takes the end screenshot: the report carries no artifacts.
 
 The finished event's `data` adds `budget_exhausted` and `resource_bound_nusd`
 (decimal nano-USD string: settled usage, still-held reservations and elapsed
@@ -190,7 +190,9 @@ template or package is published by this change.
 An extension request abort or port disconnect cancels its Node provider fetch. An uncertain receipt retains its reservation and stops the funded run, so cancellation cannot turn into a free physical retry. The pinned prices are customer tariff rates, not provider acquisition costs; provider cache/tier multipliers do not change Drex settlement.
 
 The funded clock advances monotonically even if the local wall clock moves back.
-A start timestamp ahead of the worker clock is refused before provider work.
+A start timestamp ahead of the worker clock stops the run before provider work as a
+budget stop (`limit_reached`, `budget_exhausted: true`), which Drex cancels free.
 When the runner enters cleanup, new provider calls are refused and cleanup can
-use its reserved seconds. The full grant deadline still stops cleanup funding;
+use its reserved seconds. The full grant deadline still stops cleanup funding: reached during cleanup, it is a
+budget stop (`limit_reached`, `budget_exhausted: true`) even after a completed run;
 Drex's own sandbox duration and the wallet ceiling remain authoritative at settlement.

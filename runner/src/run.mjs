@@ -240,7 +240,7 @@ export function progressLine(type, e) {
 
 /**
  * Runs one task. opts: {task, url, profile, tempProfile, headed, limits {maxCostUsd, maxSeconds, maxLlmCalls}, model,
- * allowRisky, out, allowedOrigins, endsAt}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. handleSignals: see launch().
+ * allowRisky, out, allowedOrigins, endsAt}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. endScreen: false skips the end screenshot and the needs_user look (their time is spent for nothing when the caller discards them). onCleanup(): called once the run's result is in, before the browser closes. handleSignals: see launch().
  * Returns the result (resultOf's shape). Throws RunnerError for what stops a run from starting.
  */
 export async function runTask(
@@ -251,6 +251,7 @@ export async function runTask(
     onCleanup = () => {},
     signal,
     killSignal,
+    endScreen = true,
     handleSignals = true,
     transport,
     allowLocal = false,
@@ -430,7 +431,7 @@ export async function runTask(
       const error = await panel.evaluate(() => globalThis.naceRunner.state.refused?.message ?? null).catch(() => null);
       if (error) run = { status: "error", message: error };
     }
-    const page = killSignal?.aborted ? null : agentPage(ctx, run?.report?.url);
+    const page = killSignal?.aborted || !endScreen ? null : agentPage(ctx, run?.report?.url);
     return await finish({ run, out, id, opts, created, started, page, ended });
   } catch (e) {
     if (signal?.aborted && !(e instanceof RunnerError))

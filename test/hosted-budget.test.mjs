@@ -62,7 +62,8 @@ test("sandbox time aborts a running provider call when no funds remain", async (
         assert.equal(budget.signal.aborted, true);
         assert.equal(budget.exhausted, true);
         assert.equal(budget.held, 262144n, "a cut-off call keeps its liability");
-        assert.ok(Date.now() - spec.started_at_ms >= 1000);
+        // timers may fire a millisecond or two before the wall clock shows the funded second
+        assert.ok(Date.now() - spec.started_at_ms >= 950);
       } finally {
         budget.dispose();
       }
@@ -660,4 +661,117 @@ test("an LLM call settles input and output at their own prices; only usage above
   } finally {
     budget.dispose();
   }
+});
+
+test("entering cleanup with a call still in flight stops the run as an unknown outcome and keeps its liability", () => {
+  const budget = new HostedBudget(funding("100000000"));
+  try {
+    budget.reserve("drex", decision);
+    budget.beginCleanup();
+    assert.equal(budget.signal.aborted, true);
+    assert.equal(budget.exhausted, false);
+    assert.equal(budget.held, 262144n);
+    assert.throws(() => budget.reserve("drex", decision));
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("a funded 2xx whose body breaks or lacks a terminal event keeps its reservation", async () => {
+  for (const send of [
+    (res) => {
+      res.writeHead(200);
+      res.write('{"usage":');
+      setTimeout(() => res.destroy(), 20);
+    },
+    (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(
+        `data: ${JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 5, output_tokens: 1 } } })}\n\n`,
+      );
+    },
+  ]) {
+    await fundedServer(
+      (_req, res) => send(res),
+      async (url) => {
+        const budget = new HostedBudget(funding("100000000"), llm);
+        try {
+          const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
+          await transport({
+            url: "https://api.anthropic.com/v1/messages",
+            method: "POST",
+            body: JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 10, messages: [], stream: true }),
+          });
+          assert.ok(budget.held > 0n, "the unknown liability is retained");
+          assert.equal(budget.spent, 0n);
+          assert.equal(budget.signal.aborted, true);
+          assert.equal(budget.exhausted, false);
+        } finally {
+          budget.dispose();
+        }
+      },
+    );
+  }
+});
+
+test("a funded call sends exactly the body it reserved, even when the raw body repeats a key", async () => {
+  let received;
+  await fundedServer(
+    (req, res) => {
+      const chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        received = Buffer.concat(chunks).toString("utf8");
+        res.end(JSON.stringify({ usage: { input_tokens: 1 } }));
+      });
+    },
+    async (url) => {
+      const budget = new HostedBudget(funding("100000000"));
+      try {
+        const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
+        const raw = '{"model":"other","state":"test","questions":{"decision":{}},"model":"drex-max"}';
+        await transport({ url: "https://console.nace.ai/v1/systemone", method: "POST", body: raw });
+        assert.equal(received, JSON.stringify(JSON.parse(raw)));
+        assert.equal(JSON.parse(received).model, "drex-max");
+      } finally {
+        budget.dispose();
+      }
+    },
+  );
+});
+
+test("an extension cancel before the fetch sends nothing; one mid-reply keeps the call's liability", async () => {
+  let calls = 0;
+  let received;
+  const arrived = new Promise((resolve) => (received = resolve));
+  await fundedServer(
+    (_req, res) => {
+      calls++;
+      res.writeHead(200);
+      res.write("{");
+      received();
+    },
+    async (url) => {
+      const budget = new HostedBudget(funding("100000000"));
+      try {
+        const transport = modelTransport({ drexUrl: url, llmUrl: url, budget, signal: budget.signal });
+        const body = JSON.stringify(decision);
+        const request = { url: "https://console.nace.ai/v1/systemone", method: "POST", body };
+        await assert.rejects(transport(request, AbortSignal.abort()));
+        assert.equal(calls, 0);
+        assert.equal(budget.held, 0n);
+        assert.equal(budget.signal.aborted, false);
+        const cancel = new AbortController();
+        const call = transport(request, cancel.signal);
+        await arrived;
+        cancel.abort();
+        await call.catch(() => {});
+        assert.equal(budget.held, 262144n);
+        assert.equal(budget.signal.aborted, true);
+        assert.equal(budget.exhausted, false, "a cancel is an unknown outcome, never a free retry");
+      } finally {
+        budget.dispose();
+      }
+    },
+  );
 });
