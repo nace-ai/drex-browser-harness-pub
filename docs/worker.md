@@ -155,10 +155,14 @@ sends (so no MCP servers, container, model fallbacks, speed, service tier,
 region, compaction or context management), and may not use server tools, URL and
 file sources, or a document other than plain text (PDFs and content documents
 are billed by pages and pixels its bytes do not bound). A request outside these bounds is refused before it is
-sent and holds nothing: the extension gets a transport error and the run continues. A request the remaining funds
+sent and holds nothing, but the extension gets a plain transport error: it counts an LLM call's cost as unknown and
+stops the run, and retries a Drex call as a failed request before failing the run. A request the remaining funds
 cannot cover is a budget stop. Sandbox
 time uses the same budget. The remaining funds and `expires_at_ms` determine an
 AbortSignal deadline for in-flight calls and the browser, alongside `max_seconds`.
+Chromium startup is bounded by the same deadline. A stop while it starts ends the run immediately and, on Linux
+and macOS, kills this process's Chromium on the run's profile; elsewhere the context closes once it starts.
+The profile stays until that browser is gone.
 Ten sandbox seconds of funds, and the last ten seconds before `expires_at_ms`,
 are kept back for cleanup and the report. The report is sent and retried only
 within what is left of that funded lifetime (a 1-second window when nothing is

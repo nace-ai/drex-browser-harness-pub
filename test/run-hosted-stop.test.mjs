@@ -41,6 +41,8 @@ test("a funding stop while Chromium starts ends the run at once and closes the b
   let closed = false;
   let cleanups = 0;
   const launching = new Promise((resolve) => (up = resolve));
+  // a failed assertion must not leave the launch, and the kill loop polling it, pending forever
+  t.after(() => up({ close: async () => {} }));
   t.mock.method(chromium, "launchPersistentContext", () => launching);
   setTimeout(() => stop.abort(), 50);
   const t0 = performance.now();
@@ -56,9 +58,12 @@ test("a funding stop while Chromium starts ends the run at once and closes the b
   );
   assert.ok(performance.now() - t0 < 2000, "the stop waited for Chromium to start");
   assert.equal(cleanups, 1);
+  // Chromium writes to its profile until it is gone: the profile stays until the late browser has closed
+  assert.equal((await fs.readdir(env.NACE_BROWSER_TMP)).length, 1, "the profile was removed under a live browser");
   up({ close: async () => (closed = true) });
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(closed, true, "the late browser is closed");
+  assert.deepEqual(await fs.readdir(env.NACE_BROWSER_TMP), [], "the late browser's profile was kept");
 });
 
 test("a run without an end screenshot still looks for a CAPTCHA on a hand-over", async (t) => {
@@ -99,14 +104,35 @@ test("a run without an end screenshot still looks for a CAPTCHA on a hand-over",
   assert.equal(shots, 0);
 });
 
+// a renderer-like helper in the browser's process group, which carries no --user-data-dir of its own
+const browser = `const h = require("child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+  stdio: "ignore",
+});
+console.log(h.pid);
+setInterval(() => {}, 1000);`;
+
+const gone = async (pid) => {
+  for (let i = 0; i < 30; i++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+};
+
 for (const which of ["signal", "killSignal"])
   test(
-    `a ${which} stop kills Chromium while its launch is still pending`,
+    `a ${which} stop kills Chromium and its helpers while its launch is still pending, and no other profile's browser`,
     { skip: !["linux", "darwin"].includes(process.platform) },
     async (t) => {
       const { env, opts } = await fixture(t);
       const stop = new AbortController();
       let child;
+      let other;
+      let helper;
       let exited;
       let started;
       const ready = new Promise((resolve) => (started = resolve));
@@ -115,9 +141,18 @@ for (const which of ["signal", "killSignal"])
         "launchPersistentContext",
         (dir) =>
           new Promise((_resolve, reject) => {
-            child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${dir}`], {
+            // another run's browser whose profile path starts with this one's
+            other = spawn(
+              process.execPath,
+              ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${dir}-other`],
+              {
+                detached: true,
+                stdio: "ignore",
+              },
+            );
+            child = spawn(process.execPath, ["-e", browser, "--", `--user-data-dir=${dir}`], {
               detached: true,
-              stdio: "ignore",
+              stdio: ["ignore", "pipe", "ignore"],
             });
             exited = new Promise((resolve) =>
               child.once("exit", () => {
@@ -125,10 +160,15 @@ for (const which of ["signal", "killSignal"])
                 reject(new Error("Browser closed"));
               }),
             );
-            child.once("spawn", started);
+            child.stdout.once("data", (line) => started((helper = Number(String(line).trim()))));
           }),
       );
-      t.after(() => child?.kill("SIGKILL"));
+      t.after(() => {
+        for (const pid of [child?.pid, helper, other?.pid].filter(Boolean))
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {}
+      });
       const run = runTask(opts, { env, handleSignals: false, [which]: stop.signal });
       await ready;
       stop.abort();
@@ -144,5 +184,8 @@ for (const which of ["signal", "killSignal"])
       } finally {
         clearTimeout(timer);
       }
+      assert.ok(await gone(helper), "a helper in Chromium's process group kept running");
+      assert.equal(other.exitCode, null, "another profile's browser was killed");
+      assert.equal(other.signalCode, null, "another profile's browser was killed");
     },
   );

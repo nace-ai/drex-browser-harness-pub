@@ -157,6 +157,36 @@ test("an exhausted grant stops before the browser and reports a free budget stop
   }
 });
 
+test("an exhausted grant's report is retried only for its 1-second window, not the full delivery window", async () => {
+  let attempts = 0;
+  const server = http.createServer(async (request, response) => {
+    for await (const _chunk of request);
+    attempts++;
+    response.writeHead(503).end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const input = { ...env(), DREX_WORKER_ALLOW_LOCAL: "1", DREX_BASE_URL: base };
+    const spec = JSON.parse(input.DREX_RUN_SPEC);
+    spec.funding.started_at_ms = Date.now() - 2000;
+    spec.funding.expires_at_ms = Date.now() - 1;
+    const t0 = performance.now();
+    await assert.rejects(
+      runWorker({
+        ...input,
+        DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`,
+        DREX_RUN_SPEC: JSON.stringify(spec),
+      }),
+      /deadline exceeded/,
+    );
+    assert.ok(performance.now() - t0 < 3000, "an unfunded report was retried past its window");
+    assert.ok(attempts >= 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("callback retries a transient failure with one signed event; permanent rejection is not retried", async () => {
   const key = randomBytes(32),
     received = [];

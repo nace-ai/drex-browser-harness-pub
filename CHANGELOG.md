@@ -4,6 +4,19 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## [Unreleased]
+
+### Changed
+
+- **Local runner**: the `drex-browser-run` cloud worker speaks protocol 2: it requires Drex's `funding` envelope,
+  meters every provider call and sandbox second against it outside Chromium, and refuses protocol 1 configurations
+  ([docs/worker.md](docs/worker.md)).
+
+### Fixed
+
+- **Local runner**: cancelling a run while Chromium is still starting ends it at once; on Linux and macOS the starting
+  browser is stopped too.
+
 ## [0.1.4] - 2026-10-22
 
 ### Added

@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { launch, extensionDir, runTask } from "../runner/src/run.mjs";
 import { connectTransport, modelTransport, restrictPages } from "../runner/src/worker-transport.mjs";
 import { browserProxy } from "../runner/src/worker-network.mjs";
+import { HostedBudget } from "../runner/src/hosted-budget.mjs";
 import { runWorker } from "../runner/src/worker.mjs";
 
 async function why() {
@@ -165,6 +166,67 @@ test(
       await proxy.close();
       await fs.rm(dir, { recursive: true, force: true });
       await Promise.all([new Promise((r) => model.close(r)), new Promise((r) => site.close(r))]);
+    }
+  },
+);
+
+test(
+  "an abort that reaches Node before its fetch is never reserved or sent; a closed panel aborts a call in flight",
+  { timeout: 10000 },
+  async () => {
+    let received = 0;
+    let arrived;
+    const model = http.createServer((req) => {
+      received++;
+      req.resume();
+      arrived(); // never answered: only an abort ends this call
+    });
+    await new Promise((resolve) => model.listen(0, "127.0.0.1", resolve));
+    const bindings = {};
+    const closes = [];
+    const frame = {};
+    const panel = {
+      exposeBinding: async (name, fn) => void (bindings[name] = fn),
+      once: (event, fn) => event === "close" && closes.push(fn),
+      mainFrame: () => frame,
+      url: () => "chrome-extension://ext/panel.html",
+      evaluate: async () => {},
+    };
+    const source = { page: panel, frame };
+    const budget = new HostedBudget({
+      budget_nusd: "1000000000000",
+      started_at_ms: Date.now(),
+      expires_at_ms: Date.now() + 60000,
+      prices: { drex_input: "1", llm_input: "1", llm_output: "1", browser_second: "0" },
+    });
+    const drexUrl = `http://127.0.0.1:${model.address().port}`;
+    await connectTransport(panel, { evaluate: async () => {} }, modelTransport({ drexUrl, llmUrl: drexUrl, budget }));
+    const request = {
+      url: "https://console.nace.ai/v1/systemone",
+      method: "POST",
+      body: JSON.stringify({ model: "drex-max", questions: { q: "What is the title?" } }),
+    };
+    try {
+      // the extension aborted before Node got its request: the call is neither reserved nor sent
+      await bindings.__naceWorkerAbort(source, "early");
+      await assert.rejects(bindings.__naceWorkerFetch(source, request, "early"), { name: "AbortError" });
+      assert.equal(received, 0);
+      assert.equal(budget.held, 0n);
+      assert.equal(budget.signal.aborted, false);
+      // a panel that closes mid-call aborts it: sent, so its outcome is unknown and the funded run stops
+      const sent = new Promise((resolve) => (arrived = resolve));
+      const call = bindings.__naceWorkerFetch(source, request, "late");
+      await sent;
+      for (const close of closes) close();
+      await assert.rejects(call, { name: "AbortError" });
+      assert.equal(received, 1);
+      assert.equal(budget.signal.aborted, true);
+      assert.equal(budget.exhausted, false);
+      assert.ok(budget.held > 0n, "the cut-off call's liability was released");
+    } finally {
+      budget.dispose();
+      model.closeAllConnections();
+      await new Promise((resolve) => model.close(resolve));
     }
   },
 );

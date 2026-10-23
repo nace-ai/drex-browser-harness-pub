@@ -276,6 +276,10 @@ export function providerUsage(kind, body) {
     for (const value of values) {
       const usage = value.message?.usage ?? value.usage;
       if (!usage) continue;
+      // Malformed usage is unknown; never clamp a negative counter into a refund.
+      const counters = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"];
+      if (counters.some((key) => usage[key] != null && !(Number.isSafeInteger(usage[key]) && usage[key] >= 0)))
+        return null;
       if (Number.isSafeInteger(usage.input_tokens)) input = Math.max(input ?? 0, usage.input_tokens);
       if (Number.isSafeInteger(usage.cache_read_input_tokens))
         cacheRead = Math.max(cacheRead, usage.cache_read_input_tokens);

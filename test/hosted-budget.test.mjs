@@ -547,6 +547,14 @@ test("usage is read across stream events and complete JSON replies, keeping cach
   };
   assert.deepEqual(providerUsage("llm", JSON.stringify(reply)), { input: 5, output: 4 });
   assert.equal(providerUsage("llm", JSON.stringify({ ...reply, stop_reason: null })), null);
+  for (const bad of [-1, 1.5, "7", 2 ** 53])
+    for (const key of ["input_tokens", "cache_read_input_tokens", "output_tokens"]) {
+      assert.equal(providerUsage("llm", JSON.stringify({ ...reply, usage: { ...reply.usage, [key]: bad } })), null);
+      assert.equal(
+        providerUsage("llm", split('{"input_tokens":10,"output_tokens":1}', `{"${key}":${JSON.stringify(bad)}}`)),
+        null,
+      );
+    }
   assert.deepEqual(providerUsage("drex", JSON.stringify({ usage: { input_tokens: 9 } })), { input: 9, output: 0 });
   assert.equal(providerUsage("drex", "{"), null);
 });
