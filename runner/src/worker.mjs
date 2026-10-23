@@ -4,11 +4,12 @@ import path from "node:path";
 import { createHmac, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import Ajv from "ajv";
-import { runTask } from "./run.mjs";
+import { DEFAULT_MODEL, runTask } from "./run.mjs";
+import { HostedBudget } from "./hosted-budget.mjs";
 import { modelTransport } from "./worker-transport.mjs";
 
-export const PROTOCOL_VERSION = "1";
-const schema = JSON.parse(await fs.readFile(new URL("../protocol/run-spec.v1.json", import.meta.url), "utf8"));
+export const PROTOCOL_VERSION = "2";
+const schema = JSON.parse(await fs.readFile(new URL("../protocol/run-spec.v2.json", import.meta.url), "utf8"));
 const validate = new Ajv({ strict: true, allowUnionTypes: true }).compile(schema);
 
 const endpoint = (value, allowLocal) => {
@@ -112,12 +113,17 @@ export function finishedEvent(runId, result) {
   };
 }
 
-export async function deliver(config, event, { timeoutMs = 30000 } = {}) {
+const DELIVERY_MS = 30000;
+// the window a funded report gets when its funds are already gone
+const LAST_REPORT_MS = 1000;
+
+export async function deliver(config, event, { timeoutMs = DELIVERY_MS } = {}) {
   const body = JSON.stringify(event);
   if (Buffer.byteLength(body) > 1_000_000) throw new Error("Worker report exceeds callback limit.");
   const id = `msg_${randomUUID()}`;
-  const deadline = Date.now() + timeoutMs;
-  for (let attempt = 0; Date.now() < deadline; attempt++) {
+  // monotonic: a wall-clock correction must not extend the retry window
+  const deadline = performance.now() + timeoutMs;
+  for (let attempt = 0; performance.now() < deadline; attempt++) {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = createHmac("sha256", config.callbackKey).update(`${id}.${timestamp}.${body}`).digest("base64");
     let response;
@@ -132,7 +138,7 @@ export async function deliver(config, event, { timeoutMs = 30000 } = {}) {
           "webhook-signature": `v1,${signature}`,
         },
         body,
-        signal: AbortSignal.timeout(Math.max(1, Math.min(5000, deadline - Date.now()))),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(5000, Math.ceil(deadline - performance.now())))),
       });
     } catch {
       /* retry transient network failures, with the same event id/body */
@@ -142,7 +148,7 @@ export async function deliver(config, event, { timeoutMs = 30000 } = {}) {
       if (response.ok) return;
       if (response.status < 500) throw new Error(`Callback refused (${response.status}).`);
     }
-    const wait = Math.min(250 * 2 ** Math.min(attempt, 4), 4000, deadline - Date.now());
+    const wait = Math.min(250 * 2 ** Math.min(attempt, 4), 4000, deadline - performance.now());
     if (wait > 0) await delay(wait);
   }
   throw new Error("Callback delivery deadline exceeded.");
@@ -174,7 +180,9 @@ export async function runWorker(env = process.env, { signal } = {}) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "drex-browser-run-"));
   const endsAt = Date.now() + spec.limits.max_seconds * 1000;
   const deadline = AbortSignal.timeout(spec.limits.max_seconds * 1000);
-  const combined = AbortSignal.any([deadline, signal ?? new AbortController().signal]);
+  // runTask is given no model, so the extension runs DEFAULT_MODEL, the model Drex pins LLM prices for
+  const budget = new HostedBudget(spec.funding, { llmModel: DEFAULT_MODEL });
+  const combined = AbortSignal.any([deadline, budget.signal, signal ?? new AbortController().signal]);
   let result;
   try {
     if (env.DREX_EXPECTED_WORKER_SHA) {
@@ -182,6 +190,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
       if (build.dirty || build.sha !== env.DREX_EXPECTED_WORKER_SHA)
         throw new Error("Worker release does not match the selected build.");
     }
+    combined.throwIfAborted();
     let task = spec.task;
     if (spec.answer_schema)
       task += `\nReturn your final answer as JSON matching this schema, without Markdown fences:\n${JSON.stringify(spec.answer_schema)}`;
@@ -198,6 +207,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
         out: directory,
         // the extension's budget starts after Chromium and the start page: it must end before this worker's deadline
         endsAt: endsAt - REPORT_MS,
+        launchDeadline: performance.now() + Math.max(1, Math.min(endsAt - Date.now(), budget.until() - budget.now())),
         limits: {
           maxCostUsd: spec.limits.max_cost_usd,
           maxSeconds: spec.limits.max_seconds,
@@ -208,6 +218,12 @@ export async function runWorker(env = process.env, { signal } = {}) {
         // Only placeholders reach Chromium. Local keys stay in Node; E2B uses proxy injection.
         env: { DREX_API_KEY: "worker-transport", ANTHROPIC_API_KEY: "worker-transport" },
         signal: combined,
+        // a funding stop is billed by the second: Chromium closes at once, without waiting for the agent's result,
+        // which Drex discards for a budget stop or an unconfirmed provider outcome anyway
+        killSignal: budget.signal,
+        // the report carries no artifacts: an end screenshot would only spend funded seconds
+        endScreen: false,
+        onCleanup: () => budget.beginCleanup(),
         handleSignals: false,
         allowLocal: config.allowLocal,
         transport: modelTransport({
@@ -216,6 +232,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
           drexKey: env.DREX_API_KEY,
           llmKey: env.ANTHROPIC_API_KEY,
           signal: combined,
+          budget,
         }),
       },
     );
@@ -236,9 +253,29 @@ export async function runWorker(env = process.env, { signal } = {}) {
       },
     };
   } finally {
-    await fs.rm(directory, { recursive: true, force: true });
+    budget.beginCleanup();
+    await fs.rm(directory, { recursive: true, force: true }).catch((error) => {
+      // the cleanup timer must not keep the sandbox alive until the grant ends
+      budget.dispose();
+      throw error;
+    });
   }
+  if (budget.signal.aborted && !budget.exhausted)
+    result.outcome = { kind: "internal_error", reason: "A provider outcome could not be confirmed." };
+  if (budget.exhausted) result.outcome = { kind: "limit_reached", reason: "Funded browser budget exhausted." };
+  result.usage = budget.usage;
   const event = finishedEvent(config.runId, result);
-  await deliver(config, event);
+  event.data.budget_exhausted = budget.exhausted;
+  event.data.resource_bound_nusd = (
+    budget.spent +
+    budget.held +
+    budget.elapsed * budget.prices.browser_second
+  ).toString();
+  budget.dispose();
+  // the report is sent and retried only within the funded lifetime the cleanup reserve leaves; a 1-second window
+  // is still given when nothing is left (a grant that expired before the run), so Drex hears of the run at all
+  await deliver(config, event, {
+    timeoutMs: Math.min(DELIVERY_MS, Math.max(LAST_REPORT_MS, budget.until(0n) - budget.now())),
+  });
   return event;
 }

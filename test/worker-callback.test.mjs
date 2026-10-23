@@ -5,7 +5,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { deliver, finishedEvent, runWorker, workerConfig } from "../runner/src/worker.mjs";
 
 const env = () => ({
-  DREX_PROTOCOL_VERSION: "1",
+  DREX_PROTOCOL_VERSION: "2",
   DREX_RUN_ID: "brun_" + "a".repeat(32),
   DREX_CALLBACK_SECRET: "whsec_" + randomBytes(32).toString("base64"),
   DREX_CALLBACK_URL: "https://drex.example.com/api/webhooks/browser-runs",
@@ -19,13 +19,25 @@ const env = () => ({
     risky_actions: "deny",
     limits: { max_cost_usd: 0.04, max_seconds: 60, max_llm_calls: 5 },
     artifacts: { screenshots: true, har: false },
+    funding: {
+      budget_nusd: "40000000",
+      started_at_ms: Date.now(),
+      expires_at_ms: Date.now() + 60000,
+      prices: { drex_input: "60", llm_input: "1000", llm_output: "5000", browser_second: "1000" },
+    },
   }),
 });
 test("worker refuses incompatible protocol and credentialed browser origins before executing", () => {
   assert.equal(workerConfig(env()).spec.task, "Read the title.");
-  assert.throws(() => workerConfig({ ...env(), DREX_PROTOCOL_VERSION: "2" }), /protocol/);
+  assert.throws(() => workerConfig({ ...env(), DREX_PROTOCOL_VERSION: "3" }), /protocol/);
+  // a v1 (unfunded) configuration is refused before any provider work
+  assert.throws(() => workerConfig({ ...env(), DREX_PROTOCOL_VERSION: "1" }), /protocol/);
   const input = env(),
     spec = JSON.parse(input.DREX_RUN_SPEC);
+  const { funding } = spec;
+  delete spec.funding;
+  assert.throws(() => workerConfig({ ...input, DREX_RUN_SPEC: JSON.stringify(spec) }), /specification/);
+  spec.funding = funding;
   spec.start_url = "http://api.anthropic.com";
   spec.allowed_origins = [spec.start_url];
   assert.throws(() => workerConfig({ ...input, DREX_RUN_SPEC: JSON.stringify(spec) }), /origin/);
@@ -100,13 +112,76 @@ test("a refused spec is reported to Drex as internal_error instead of leaving th
     // a report Drex refuses leaves the refusal as the error, with the delivery failure attached
     status = 400;
     await assert.rejects(
-      runWorker({ ...local, DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`, DREX_PROTOCOL_VERSION: "2" }),
+      runWorker({ ...local, DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`, DREX_PROTOCOL_VERSION: "3" }),
       (e) => /protocol version/.test(e.message) && !!e.delivery,
     );
     assert.equal(received.length, 2);
     // without a valid run id and key nothing can be reported
     await assert.rejects(runWorker({ ...local, DREX_RUN_ID: "nope" }), /run id/);
     assert.equal(received.length, 2);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an exhausted grant stops before the browser and reports a free budget stop with its resource bound", async () => {
+  const received = [];
+  const server = http.createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    received.push(JSON.parse(body));
+    response.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const input = { ...env(), DREX_WORKER_ALLOW_LOCAL: "1", DREX_BASE_URL: base };
+    const spec = JSON.parse(input.DREX_RUN_SPEC);
+    spec.funding.started_at_ms = Date.now() - 2000;
+    spec.funding.expires_at_ms = Date.now() - 1;
+    const event = await runWorker({
+      ...input,
+      DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`,
+      DREX_RUN_SPEC: JSON.stringify(spec),
+    });
+    assert.equal(received.length, 1);
+    const data = received[0].data;
+    assert.deepEqual(data, event.data);
+    assert.equal(data.outcome.kind, "limit_reached");
+    assert.equal(data.budget_exhausted, true);
+    assert.equal(typeof data.resource_bound_nusd, "string");
+    assert.ok(BigInt(data.resource_bound_nusd) >= 2000n);
+    assert.deepEqual(data.usage, { drex_input_tokens: 0, llm_input_tokens: 0, llm_output_tokens: 0 });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an exhausted grant's report is retried only for its 1-second window, not the full delivery window", async () => {
+  let attempts = 0;
+  const server = http.createServer(async (request, response) => {
+    for await (const _chunk of request);
+    attempts++;
+    response.writeHead(503).end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const input = { ...env(), DREX_WORKER_ALLOW_LOCAL: "1", DREX_BASE_URL: base };
+    const spec = JSON.parse(input.DREX_RUN_SPEC);
+    spec.funding.started_at_ms = Date.now() - 2000;
+    spec.funding.expires_at_ms = Date.now() - 1;
+    const t0 = performance.now();
+    await assert.rejects(
+      runWorker({
+        ...input,
+        DREX_CALLBACK_URL: `${base}/api/webhooks/browser-runs`,
+        DREX_RUN_SPEC: JSON.stringify(spec),
+      }),
+      /deadline exceeded/,
+    );
+    assert.ok(performance.now() - t0 < 3000, "an unfunded report was retried past its window");
+    assert.ok(attempts >= 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

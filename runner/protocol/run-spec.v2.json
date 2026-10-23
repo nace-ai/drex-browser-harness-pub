@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://nace.ai/internal/browser-worker/v1/spec",
-  "title": "Drex browser worker protocol v1: normalized run spec",
+  "$id": "https://nace.ai/internal/browser-worker/v2/spec",
+  "title": "Drex browser worker protocol v2: normalized run spec",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -63,6 +63,53 @@
         }
       },
       "required": ["screenshots", "har"]
+    },
+    "funding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "budget_nusd": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,15}$"
+        },
+        "started_at_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expires_at_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "prices": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "drex_input": {
+              "type": "string",
+              "pattern": "^[0-9]{1,15}$"
+            },
+            "llm_input": {
+              "type": "string",
+              "pattern": "^[0-9]{1,15}$"
+            },
+            "llm_output": {
+              "type": "string",
+              "pattern": "^[0-9]{1,15}$"
+            },
+            "browser_second": {
+              "type": "string",
+              "pattern": "^[0-9]{1,15}$"
+            }
+          },
+          "required": [
+            "drex_input",
+            "llm_input",
+            "llm_output",
+            "browser_second"
+          ]
+        }
+      },
+      "required": ["budget_nusd", "started_at_ms", "expires_at_ms", "prices"]
     }
   },
   "required": [
@@ -72,6 +119,7 @@
     "answer_schema",
     "risky_actions",
     "limits",
-    "artifacts"
+    "artifacts",
+    "funding"
   ]
 }

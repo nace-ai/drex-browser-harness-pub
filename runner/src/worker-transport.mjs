@@ -1,15 +1,17 @@
+import { providerUsage } from "./hosted-budget.mjs";
 // The extension gets an in-process RPC channel, never provider credentials or a
 // localhost HTTP proxy. Only its service worker can open this extension port;
-// only the runner's extension page has the Playwright binding back to Node.
+// only the runner's extension page has the Playwright bindings (fetch and abort) back to Node.
 const PORT = "nace-worker-fetch";
 const MAX_RESPONSE = 8 * 1024 * 1024;
 
-export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "proxy", signal }) {
+export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "proxy", signal, budget }) {
   const endpoints = new Map([
     ["https://console.nace.ai/v1/systemone", { url: new URL("/v1/systemone", drexUrl), key: drexKey, kind: "drex" }],
     ["https://api.anthropic.com/v1/messages", { url: new URL("/v1/messages", llmUrl), key: llmKey, kind: "llm" }],
   ]);
-  return async (request) => {
+  return async (request, requestSignal) => {
+    const callSignal = AbortSignal.any([signal, requestSignal, budget?.signal].filter(Boolean));
     const endpoint = endpoints.get(request.url);
     if (
       !endpoint ||
@@ -26,19 +28,26 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
       const beta = request.headers?.["anthropic-beta"];
       if (typeof beta === "string" && /^[a-zA-Z0-9,._-]{1,1000}$/.test(beta)) headers["anthropic-beta"] = beta;
     }
+    // An aborted run never reserves (or sends) another call.
+    callSignal.throwIfAborted();
+    const parsed = budget && JSON.parse(request.body);
+    const ticket = budget?.reserve(endpoint.kind, parsed);
     let response;
     try {
       response = await fetch(endpoint.url, {
         method: "POST",
         headers,
-        body: request.body,
+        // a funded call sends the body it reserved, re-serialized, so duplicate keys cannot differ between the two
+        body: parsed ? JSON.stringify(parsed) : request.body,
         redirect: "error",
         // no fixed cap: the extension streams long replies and times each call against its own run budget
-        signal,
+        signal: callSignal,
       });
     } catch (error) {
-      if (signal?.aborted) throw error;
-      // no answer at all: the one failure the extension may retry as an unbilled connection error
+      if (ticket) budget.settle(ticket, null);
+      if (callSignal.aborted) throw error;
+      // no answer at all, unfunded only (a funded call's unknown outcome has stopped the run above): the one
+      // failure the extension may retry as an unbilled connection error
       return { unanswered: true };
     }
     const reader = response.body?.getReader();
@@ -61,6 +70,23 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
         await reader.cancel().catch(() => {});
       }
     }
+    // A complete refusal (4xx other than 408, or Anthropic's 529) bills nothing: released, so the
+    // extension may retry it. Other 5xx (a Drex 529 included) and 408 may come from a gateway after the provider did
+    // billed work.
+    const refused =
+      (response.status === 529 && endpoint.kind === "llm") ||
+      (response.status >= 400 && response.status < 500 && response.status !== 408);
+    if (ticket)
+      budget.settle(
+        ticket,
+        bodyError
+          ? null
+          : response.ok
+            ? providerUsage(endpoint.kind, Buffer.concat(chunks).toString("utf8"))
+            : refused
+              ? { input: 0, output: 0 }
+              : null,
+      );
     return {
       status: response.status,
       headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
@@ -88,22 +114,51 @@ export async function restrictPages(ctx, origins) {
 }
 
 export async function connectTransport(panel, worker, transport) {
-  await panel.exposeBinding("__naceWorkerFetch", async ({ page, frame }, request) => {
+  const calls = new Map();
+  const trusted = ({ page, frame }) => {
     if (page !== panel || frame !== panel.mainFrame() || !panel.url().startsWith("chrome-extension://"))
       throw new Error("Untrusted transport caller.");
-    return transport(request);
+  };
+  panel.once("close", () => {
+    for (const controller of calls.values()) controller.abort();
+  });
+  await panel.exposeBinding("__naceWorkerAbort", (source, id) => {
+    trusted(source);
+    const controller = calls.get(id) ?? new AbortController();
+    calls.set(id, controller);
+    controller.abort();
+  });
+  await panel.exposeBinding("__naceWorkerFetch", async (source, request, id) => {
+    trusted(source);
+    const controller = calls.get(id) ?? new AbortController();
+    calls.set(id, controller);
+    try {
+      return await transport(request, controller.signal);
+    } finally {
+      calls.delete(id);
+    }
   });
   await panel.evaluate((name) => {
     chrome.runtime.onConnect.addListener((port) => {
       if (port.name !== name || port.sender?.id !== chrome.runtime.id) return;
       // Keep the MV3 worker alive while Node buffers a model's streamed reply.
       const ping = setInterval(() => port.postMessage({ ping: true }), 10000);
-      port.onDisconnect.addListener(() => clearInterval(ping));
+      const id = crypto.randomUUID();
+      let sent = false;
+      let complete = false;
+      port.onDisconnect.addListener(() => {
+        clearInterval(ping);
+        // a port closed before its request has no call to abort (and its id would stay in Node's map)
+        if (sent && !complete) void globalThis.__naceWorkerAbort(id).catch(() => {});
+      });
       port.onMessage.addListener(async (request) => {
+        sent = true;
         try {
-          const result = await globalThis.__naceWorkerFetch(request);
+          const result = await globalThis.__naceWorkerFetch(request, id);
+          complete = true;
           port.postMessage(result.unanswered ? { error: "Model connection failed.", unanswered: true } : { result });
         } catch {
+          complete = true;
           // Never relay an SDK exception that might include provider headers.
           try {
             port.postMessage({ error: "Model transport failed." });

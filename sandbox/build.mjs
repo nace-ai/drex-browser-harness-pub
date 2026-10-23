@@ -78,7 +78,7 @@ const template = Template({ fileContextPath: context })
 fs.writeFileSync(path.join(context, "Dockerfile"), Template.toDockerfile(template));
 const identity = {
   source_sha: sha,
-  protocol_version: "1",
+  protocol_version: "2",
   base_image: baseImage,
   package_sha256: hash("browser.tgz"),
   lock_sha256: hash("package-lock.json"),
