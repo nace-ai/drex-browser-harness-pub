@@ -108,6 +108,45 @@ test("a backwards clock correction cannot extend the funded runtime when a call 
   }
 });
 
+test("a future start is refused before any provider call", () => {
+  const now = Date.now();
+  const spec = { ...funding(), started_at_ms: now + 20000 };
+  const budget = new HostedBudget(spec, { now: () => now });
+  try {
+    assert.equal(budget.exhausted, true);
+    assert.throws(() => budget.reserve("drex", decision), /budget exhausted/);
+    assert.equal(budget.held, 0n);
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("finished provider work can use its cleanup reserve without starting new work or extending the grant", async () => {
+  const now = Date.now();
+  const spec = { ...funding("100000000"), started_at_ms: now, expires_at_ms: now + 1200 };
+  const budget = new HostedBudget(spec, { cleanupSeconds: 1 });
+  try {
+    budget.beginCleanup();
+    assert.throws(() => budget.reserve("drex", decision), /work has ended/);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(budget.exhausted, false, "cleanup consumed its reserve, not additional funds");
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("cleanup extended the grant")), 1500);
+      budget.signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        { once: true },
+      );
+    });
+    assert.equal(budget.exhausted, true);
+  } finally {
+    budget.dispose();
+  }
+});
+
 test("usage above its reservation stops the run as exhausted; unreadable usage keeps the liability", () => {
   const over = new HostedBudget(funding("100000000"));
   try {

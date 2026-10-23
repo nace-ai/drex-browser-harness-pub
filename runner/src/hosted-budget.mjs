@@ -44,7 +44,10 @@ export class HostedBudget {
     this.usage = { drex_input_tokens: 0, llm_input_tokens: 0, llm_output_tokens: 0 };
     this.controller = new AbortController();
     this.timer = null;
-    this.arm();
+    this.cleaning = false;
+    // A start in the future reveals clock skew; do not grant unmetered time.
+    if (now() < this.start) this.stop();
+    else this.arm();
   }
 
   get signal() {
@@ -74,7 +77,7 @@ export class HostedBudget {
   arm() {
     clearTimeout(this.timer);
     if (this.signal.aborted) return;
-    const end = this.until();
+    const end = this.until(this.cleaning ? 0n : this.cleanup);
     if (end <= this.now()) {
       this.stop();
       return;
@@ -82,8 +85,16 @@ export class HostedBudget {
     this.timer = setTimeout(() => this.stop(), Math.min(end - this.now(), 2147483647));
   }
 
+  beginCleanup() {
+    this.cleaning = true;
+    if (this.held > 0n) this.stop(false);
+    // Cleanup can use its reserved seconds, but never extend the funded grant.
+    this.arm();
+  }
+
   reserve(kind, body) {
     this.signal.throwIfAborted();
+    if (this.cleaning) throw new Error("Funded provider work has ended.");
     let bound;
     if (kind === "drex") {
       const questions = Object.keys(body.questions ?? {}).length;

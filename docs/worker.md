@@ -188,3 +188,9 @@ package and selecting its verified worker SHA is a separate rollout step. No E2B
 template or package is published by this change.
 
 An extension request abort or port disconnect cancels its Node provider fetch. An uncertain receipt retains its reservation and stops the funded run, so cancellation cannot turn into a free physical retry. The pinned prices are customer tariff rates, not provider acquisition costs; provider cache/tier multipliers do not change Drex settlement.
+
+The funded clock advances monotonically even if the local wall clock moves back.
+A start timestamp ahead of the worker clock is refused before provider work.
+When the runner enters cleanup, new provider calls are refused and cleanup can
+use its reserved seconds. The full grant deadline still stops cleanup funding;
+Drex's own sandbox duration and the wallet ceiling remain authoritative at settlement.

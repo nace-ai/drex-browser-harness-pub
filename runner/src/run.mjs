@@ -248,6 +248,7 @@ export async function runTask(
   {
     env = process.env,
     onProgress = () => {},
+    onCleanup = () => {},
     signal,
     killSignal,
     handleSignals = true,
@@ -436,6 +437,7 @@ export async function runTask(
       throw new RunnerError("cancelled", "The run was cancelled before it started.");
     throw e;
   } finally {
+    onCleanup();
     signal?.removeEventListener("abort", onAbort);
     killSignal?.removeEventListener("abort", onKill);
     if (ctx) await close();

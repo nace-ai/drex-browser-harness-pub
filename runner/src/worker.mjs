@@ -219,6 +219,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
         // a funding stop is billed by the second: Chromium closes at once, without waiting for the agent's result,
         // which Drex discards for a budget stop or an unconfirmed provider outcome anyway
         killSignal: budget.signal,
+        onCleanup: () => budget.beginCleanup(),
         handleSignals: false,
         allowLocal: config.allowLocal,
         transport: modelTransport({
@@ -248,6 +249,7 @@ export async function runWorker(env = process.env, { signal } = {}) {
       },
     };
   } finally {
+    budget.beginCleanup();
     await fs.rm(directory, { recursive: true, force: true });
   }
   if (budget.held > 0n && !budget.signal.aborted) budget.stop(false);
