@@ -3,6 +3,7 @@
 // extension page, the only kind the worker takes runs from), sends it the task over the panel's port with this run's
 // keys, model and limits, and waits for the worker's result. Ported from e2e/run.py, which drives the same loop
 // through the panel's buttons.
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -175,6 +176,64 @@ export async function launch(userDataDir, { headless, extension, handleSignals =
   }
 }
 
+/**
+ * The Chromium processes this process has started on a profile: a launch() still starting gives no handle on its
+ * browser, which only Playwright's exit handler would kill. On Linux and macOS; elsewhere none are found.
+ */
+function chromiumsOn(dir) {
+  const arg = `--user-data-dir=${dir}`;
+  const ours = (ppid, args) => ppid === process.pid && (args.includes(`${arg} `) || args.endsWith(arg));
+  try {
+    if (process.platform === "linux")
+      return fs
+        .readdirSync("/proc")
+        .filter((p) => /^\d+$/.test(p))
+        .filter((p) => {
+          try {
+            // the parent is the field after the state, after the parenthesized command, which can hold spaces
+            const ppid = Number(/\)\s+\S+\s+(\d+)/.exec(fs.readFileSync(`/proc/${p}/stat`, "utf8"))?.[1]);
+            return ours(ppid, fs.readFileSync(`/proc/${p}/cmdline`, "utf8").replaceAll("\0", " ").trimEnd());
+          } catch {
+            return false; // ended meanwhile
+          }
+        })
+        .map(Number);
+    if (process.platform === "darwin")
+      return execFileSync("ps", ["-A", "-o", "pid=,ppid=,args="], {
+        encoding: "utf8",
+        maxBuffer: 64 << 20,
+        timeout: 1000,
+      })
+        .split("\n")
+        .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
+        .filter((m) => m && ours(Number(m[2]), m[3]))
+        .map((m) => Number(m[1]));
+  } catch {}
+  return [];
+}
+
+/** Kills the Chromium a launch() on dir has started, until that launch settles: it then fails, its browser gone. */
+async function killStarting(launching, dir) {
+  if (process.platform !== "linux" && process.platform !== "darwin") return; // the late browser is closed when it is up
+  let settled = false;
+  void launching.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  while (!settled) {
+    for (const pid of chromiumsOn(dir)) {
+      try {
+        process.kill(-pid, "SIGKILL"); // Playwright starts Chromium as a process group leader: its helpers too
+      } catch {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+    }
+    await sleep(100);
+  }
+}
+
 /** What the agent's tab shows, to tell a sign-in from a CAPTCHA when the run handed the screen over. */
 export async function lookAt(page) {
   let timer;
@@ -292,6 +351,8 @@ export async function runTask(
     const dir = temp ? temp.dir : profileDir(opts.profile, env);
     fs.mkdirSync(dir, { recursive: true });
     if (transport) network = await browserProxy(opts.allowedOrigins, { allowLocal });
+    if (signal?.aborted || killSignal?.aborted)
+      throw new RunnerError("cancelled", "The run was cancelled before it started.");
     const launching = launch(dir, {
       headless: !opts.headed,
       extension,
@@ -306,6 +367,7 @@ export async function runTask(
     ctx = await new Promise((resolve, reject) => {
       const cancel = () => {
         late = launching;
+        void killStarting(launching, dir);
         reject(new RunnerError("cancelled", "The run was cancelled before it started."));
       };
       if (halt.aborted) return cancel();

@@ -2,6 +2,7 @@
 // a run without an end screenshot still takes.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -97,3 +98,51 @@ test("a run without an end screenshot still looks for a CAPTCHA on a hand-over",
   assert.equal(result.outcome.kind, "blocked_captcha");
   assert.equal(shots, 0);
 });
+
+for (const which of ["signal", "killSignal"])
+  test(
+    `a ${which} stop kills Chromium while its launch is still pending`,
+    { skip: !["linux", "darwin"].includes(process.platform) },
+    async (t) => {
+      const { env, opts } = await fixture(t);
+      const stop = new AbortController();
+      let child;
+      let exited;
+      let started;
+      const ready = new Promise((resolve) => (started = resolve));
+      t.mock.method(
+        chromium,
+        "launchPersistentContext",
+        (dir) =>
+          new Promise((_resolve, reject) => {
+            child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${dir}`], {
+              detached: true,
+              stdio: "ignore",
+            });
+            exited = new Promise((resolve) =>
+              child.once("exit", () => {
+                resolve();
+                reject(new Error("Browser closed"));
+              }),
+            );
+            child.once("spawn", started);
+          }),
+      );
+      t.after(() => child?.kill("SIGKILL"));
+      const run = runTask(opts, { env, handleSignals: false, [which]: stop.signal });
+      await ready;
+      stop.abort();
+      await assert.rejects(run, { code: "cancelled" });
+      let timer;
+      try {
+        await Promise.race([
+          exited,
+          new Promise((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("Chromium kept running after stop")), 3000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
