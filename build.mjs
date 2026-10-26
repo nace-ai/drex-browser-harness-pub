@@ -64,14 +64,19 @@ await esbuild.build({
         : (process.env.DREX_COST ??
             "packText,llmTaskTrim,noThink,drexCompact,drexText,llmNoImage,staticSchema,verifyDrex,searchEnter,obsLite,collectLite"),
     ),
-    // the accuracy switches of src/accuracy.ts: all on by default (the first four measured on WebArena DEV and
-    // HOLDOUT-1; the four mechanics on the MiniWoB families they target, 102/140 vs 61/140 on the eval VM);
-    // DREX_ACC=none builds without them, DREX_ACC="noteResolve,answerGuard" builds with just those
+    // the accuracy switches of src/accuracy.ts: the ones on by default are the measured ones listed below (the first
+    // four on WebArena DEV and HOLDOUT-1, the four mechanics on the MiniWoB families they target, 102/140 vs 61/140 on
+    // the eval VM). navMap stays off: gated, it took shopping 239/264 from 0/4 to 4/4 and left reddit level (11/20 vs
+    // 12/20, before the 30-link minimum closed reddit's gate), but on 60 fresh random tasks it measured -2.5 points
+    // with a 95% interval of [-8.7, +3.7] (2026-10-23), short of the no-loss rule. deadUrls, longSelects, frames,
+    // settingReadback, aggregate and listCoverage stay off until a random set confirms them. sortCheck is on: it acts only
+    // when a date sort runs the wrong way (see src/accuracy.ts), at no model cost.
+    // DREX_ACC=none builds without any switch, DREX_ACC="noteResolve,answerGuard" builds with just those
     __DREX_ACC__: JSON.stringify(
       process.env.DREX_ACC === "none"
         ? ""
         : (process.env.DREX_ACC ??
-            "noteResolve,answerGuard,answerRules,scanOn,confirmedChanges,revealEvidence,dragTo,datePicker,pickSuggestion,copyMove"),
+            "noteResolve,answerGuard,answerRules,scanOn,confirmedChanges,revealEvidence,dragTo,datePicker,pickSuggestion,copyMove,sortCheck"),
     ),
   },
   logLevel: "warning",

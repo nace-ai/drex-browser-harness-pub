@@ -1996,6 +1996,79 @@ test("a replan may only open sites the task started on or named, and notes are t
   }
   assert.deepEqual(offered, [true, false]);
 });
+test("a step that opens a path from the site map opens it on the page the run is on, in the plan and in a replan; the trust check still applies", async () => {
+  const previous = globalThis.chrome;
+  globalThis.chrome = runChrome();
+  try {
+    const a = agent({});
+    a.fixedPlan = {
+      steps: [
+        { ...step, open_url: "/admin/sales/order/" },
+        // the map prints a same-origin double-slash link as "//evil.test/x?y=1": it is no address on another site
+        { ...step, goal: "Elsewhere", open_url: "//evil.test/x?y=1" },
+      ],
+    };
+    a.windowTabs = async () => [{ id: 1, url: "http://shop.test/admin/dashboard/", title: "Dashboard", active: true }];
+    let here = "http://shop.test/admin/sales/order/";
+    a.currentTab = async () => ({ info: async () => ({ ...info, url: here }) });
+    const opened = [];
+    a.prepare = async (s) => opened.push(s.open_url);
+    let calls = 0;
+    a.browse = async () => {
+      calls++;
+      if (calls === 1) return { replan: [{ ...step, goal: "Customers", open_url: "/admin/customer/" }], why: "go on" };
+      if (calls === 2) {
+        here = "http://evil.test/page"; // a click led off the sites the run trusts
+        return { replan: [{ ...step, goal: "Collect", open_url: "/collect" }], why: "The page says to go there" };
+      }
+      return {};
+    };
+    const result = await a.run("Open the sales orders");
+    assert.equal(result.status, "done");
+    // the plan's path opens on the start tab's site, the replan's on the page the run was on, and a path on an
+    // untrusted page is dropped by the trust check
+    assert.deepEqual(opened, [
+      "http://shop.test/admin/sales/order/",
+      "http://shop.test/admin/customer/",
+      "",
+      "//evil.test/x?y=1", // left as written
+    ]);
+    assert.ok(result.record.some((e) => e.type === "blocked" && /evil\.test\/collect/.test(e.what)));
+    // the first plan has no trust check of its own: the scheme-relative address was never turned into an address on
+    // another site, so that site was not made trusted, and opening what is left of it is refused
+    assert.ok(![...a.trusted].some((origin) => origin.includes("evil.test")));
+    globalThis.chrome.tabs.get = async () => ({ id: 1, url: "http://shop.test/admin/dashboard/" });
+    a.agentTabId = 1;
+    await assert.rejects(a.openOwnTab("//evil.test/x?y=1"), /Refusing to open/);
+    assert.ok(
+      result.record.some(
+        (e) => e.type === "tab" && /^resolved \/admin\/sales\/order\/ to http:\/\/shop\.test\//.test(e.what),
+      ),
+    );
+  } finally {
+    globalThis.chrome = previous;
+  }
+});
+test("a plan or replan step whose open_url is not text does not stop the run: the plan leaves it, a replan drops it", async () => {
+  const previous = globalThis.chrome;
+  globalThis.chrome = runChrome();
+  try {
+    const a = agent({});
+    a.fixedPlan = { steps: [{ ...step, open_url: 5 }] };
+    a.windowTabs = async () => [{ id: 1, url: "http://shop.test/admin/dashboard/", title: "Dashboard", active: true }];
+    const opened = [];
+    a.prepare = async (s) => opened.push(s.open_url);
+    let calls = 0;
+    a.browse = async () => (++calls === 1 ? { replan: [{ ...step, goal: "Again", open_url: 5 }], why: "go on" } : {});
+    const result = await a.run("Open the sales orders");
+    assert.equal(result.status, "done");
+    // openOwnTab refuses the plan's 5 as malformed; the replan's goes through the trust check, which drops it
+    assert.deepEqual(opened, [5, ""]);
+    assert.ok(result.record.some((e) => e.type === "blocked" && /open 5/.test(e.what)));
+  } finally {
+    globalThis.chrome = previous;
+  }
+});
 test("every prompt that shows a page tells the LLM to ignore instructions on it", async () => {
   const { PAGE_SAFETY } = await import(pathToFileURL(join(source, "llm.ts")));
   const llm = fixtureLLM();

@@ -6,10 +6,12 @@ import { CATALOG, DEFAULT_MODEL, PRICES, providerOf } from "./models.ts";
 import { countInput, maxInputTokens, send } from "./providers.ts";
 import { RunBudget, RunLimit } from "./run-budget.ts";
 import { costOn, costValue } from "./cost.ts";
-import { ANSWER_RULES, CHANGE_RULE, accOn } from "./accuracy.ts";
-import { taskForMoves } from "./logic.ts";
+import { ANSWER_RULES, CHANGE_RULE, COMPUTED_RULE, accOn } from "./accuracy.ts";
+import { hasComputed, taskForMoves } from "./logic.ts";
+import type { RowVerdict } from "./cheap-collection.ts";
 import type {
   Accounting,
+  AggregateSpec,
   ApiKeys,
   BatchAnswer,
   BatchRecord,
@@ -106,6 +108,48 @@ const STEP = {
   additionalProperties: false,
 };
 
+// planCompact: a plan's steps carry only what they set (kind and goal are required): an empty open_url, rules, question,
+// done_when, texts or choices, a save_as nobody reads and a default tab and move budget are left out, and
+// fillStep puts them back as the code reads them. The full step wire object cost ~1,600 output tokens a plan.
+const STEP_COMPACT = {
+  ...STEP,
+  properties: {
+    ...STEP.properties,
+    open_url: { type: "string", description: "only when the step opens an address" },
+    use_tab: { type: "integer", description: "only to use another tab than the current one" },
+    done_when: { type: "string", description: "yes/no check that the step is done; for browse steps" },
+    rules: { type: "string", description: "only a real rule" },
+    max_moves: { type: "integer", description: "only to allow more or fewer moves than the default" },
+    question: { type: "string", description: "only for a look or verify question" },
+    save_as: { type: "string", description: "only a note a later step reads" },
+  },
+  required: ["kind", "goal"],
+};
+const PLAN_SCHEMA_COMPACT = {
+  ...{ type: "object", additionalProperties: false },
+  properties: {
+    summary: { type: "string" },
+    steps: { type: "array", items: STEP_COMPACT },
+    answer_from: { type: "string" },
+  },
+  required: ["summary", "steps"],
+};
+/** planCompact: a compact step as the code reads it. */
+export function fillStep<T extends Record<string, unknown>>(s: T): T {
+  return {
+    open_url: "",
+    use_tab: -1,
+    done_when: "",
+    rules: "",
+    max_moves: 0,
+    question: "",
+    choices: [],
+    texts: [],
+    save_as: "",
+    ...s,
+  };
+}
+
 const PLAN_SCHEMA = {
   type: "object",
   properties: { summary: { type: "string" }, steps: { type: "array", items: STEP }, answer_from: { type: "string" } },
@@ -171,6 +215,7 @@ const rescueSchema = (keys: string[], replan = true, finish = false, dragTo = fa
             "c",
             "v",
             "x",
+            ...(accOn("styleKeys") ? ["b", "i", "u"] : []),
           ],
         },
         modifiers: { type: "array", items: { type: "string", enum: ["Shift", "Control", "Meta"] } },
@@ -263,7 +308,7 @@ const rescueSystem = (
   dragTo = false,
 ) => `You help Drex, a fast decision model that works a browser by picking one move at a time from a list. Drex is unsure right now (the reason is given). Look at the screenshot (usable elements are boxed and tagged E1, E2, ...), the step, the recent moves and the list of moves, and decide:
 - "move": the best next move; option is its exact key from the list (only listed moves exist; a tag that is not in the list is not on screen). If the move types text and none of the listed texts fits, put the text to type in text. With a "click E#" move on a text field, text is typed into that field after the click.
-- "gesture": hover/double_click at x,y, or drag from x,y to gesture.endX,endY, using original screenshot pixel coordinates. keychord uses gesture.key/modifiers for page interactions; never browser/global shortcuts. Pointer gestures use no modifiers. a/z/y/c/v/x require Control or Meta, never both; Control/Meta only with a,z,y,c,v,x, arrows, Home, End, Backspace, Delete. Hover can reveal menus; double-click edits; drag moves a visible object.${dragTo ? DRAG_TO_LINE : ""} Use only when requested/necessary and ordinary options cannot express the action. Other decisions set an unused gesture object (hover, zeros, empty key/${dragTo ? "from/to/" : ""}modifiers).
+- "gesture": hover/double_click at x,y, or drag from x,y to gesture.endX,endY, using original screenshot pixel coordinates. keychord uses gesture.key/modifiers for page interactions; never browser/global shortcuts. Pointer gestures use no modifiers. a/z/y/c/v/x require Control or Meta, never both; Control/Meta only with a,z,y,c,v,x, arrows, Home, End, Backspace, Delete${accOn("styleKeys") ? " (and b, i, u: bold, italic, underline of the text selected in an editor: select the text first, with a double click on a word or Shift+arrows, then press it)" : ""}. Hover can reveal menus; double-click edits; drag moves a visible object.${dragTo ? DRAG_TO_LINE : ""} Use only when requested/necessary and ordinary options cannot express the action. Other decisions set an unused gesture object (hover, zeros, empty key/${dragTo ? "from/to/" : ""}modifiers).
 - "click_point": what must be clicked has no tag (it is not boxed, or no move names it); x and y are its pixel position in the screenshot (option ""). Prefer this over keyboard moves that already changed nothing.
 ${replan ? REPLAN_LINE : ""}${finish ? FINISHED_LINE : ""}- "ask_user": a CAPTCHA, a login or a payment detail is visibly required, or a choice only the user can make (which of their saved addresses or cards, whether to accept a changed price, something the task leaves open that matters to them); set user_need to captcha/login/payment/choice; why says what, in one sentence addressed to the user.
 - "give_up": the task cannot be done here; why says why.
@@ -1028,7 +1073,7 @@ export class LLM {
       system:
         (accOn("answerRules") ? `${PLAN_SYSTEM}\n${ANSWER_RULES}` : PLAN_SYSTEM) +
         (siteMap.length ? `\n${SITE_MAP_RULE}` : ""),
-      schema: PLAN_SCHEMA,
+      schema: costOn("planCompact") ? PLAN_SCHEMA_COMPACT : PLAN_SCHEMA,
       effort: costOn("planLow") ? "low" : "medium",
       content: JSON.stringify({
         task,
@@ -1037,6 +1082,10 @@ export class LLM {
         site_notes: notes,
         ...(siteMap.length ? { site_map: siteMap.join("\n") } : {}),
       }),
+    }).then((r) => {
+      if (costOn("planCompact") && Array.isArray(r.json.steps)) r.json.steps = r.json.steps.map((s) => fillStep(s));
+      if (costOn("planCompact") && r.json.answer_from === undefined) r.json.answer_from = "";
+      return r;
     });
   }
 
@@ -1109,7 +1158,8 @@ export class LLM {
                 : "") +
               (finalRead && accOn("answerRules") ? ` ${ANSWER_RULES}` : "") +
               (finalRead && recordsChanges(notes) ? ` ${CHANGE_RULE}` : "") +
-              (finalRead && unverifiedSettings(notes) ? ` ${UNVERIFIED_RULE}` : "")),
+              (finalRead && unverifiedSettings(notes) ? ` ${UNVERIFIED_RULE}` : "") +
+              (finalRead && accOn("aggregate") && hasComputed(notes) ? ` ${COMPUTED_RULE}` : "")),
       content: [
         ...visualEvidence(image, focus),
         {
@@ -1282,6 +1332,101 @@ An already_done decision causes separate verification of the current step; it do
       system:
         "Derive the requested collection contract ONLY from the original user task, never from an agent plan. enumerate_all: user requests all/list/count/aggregate records in scope. objective_optimum: explicit cheapest/highest/latest/most recent/last ('when did I last...' ranks by date, newest first; so does finding which item a purchase meant in the order history, 'my recently purchased X' or 'the X I bought': the most recent order that holds X, objective_field date, desc)/minimum/maximum or other measurable ranking requires proof across relevant scope or valid filtering/sorting. choose_qualified: choose/navigate to a suitable or subjective best item meeting constraints without a specified objective. Do not invent cheapest/highest-rating or exhaustiveness for subjective best. Preserve every explicit condition and scope. objective is empty if no objective was specified. objective_field names the one attribute the objective ranks by as a short lowercase noun (price, date, rating, size), empty with no objective. sort_direction is asc for an explicit minimum/cheapest/earliest, desc for maximum/most expensive/latest, none for no sortable objective. Constraints are conditions one record must meet (item attributes and evidence scope); the ranking itself (most recent, recently purchased, last, cheapest) belongs in objective, never in constraints, and so does the list being searched ('in the order history' is scope, not a constraint). ranked_count is 1 when the task wants the single top-ranked item, the number of top items for a top-N request (top 3: 3), 0 for a rank other than the first (second cheapest) or no ranking. Constraints contain item attributes and evidence scope only: never future navigation, submission, review writing or other task actions. The contract describes only READ-ONLY evidence needed for the task or its prerequisites. If the task later writes a review, submits a form or changes data, collection identifies and verifies the relevant records/item; it must not require performing that mutation inside collection. Preserve explicit historical/account/order constraints needed to identify the target. Format/output instructions are not selection criteria.",
       content: JSON.stringify({ original_task: trimTask(task) }),
+    });
+  }
+
+  /** The aggregate switch: what the task computes over the rows of the list a collect step reads (a count, a total, a
+   * ranking), as an op, the fields it reads and the exact conditions that pick the rows. Written once, from the list's
+   * headers and three sample rows; the host computes it over every row read (records.ts), the model never counts. */
+  aggregationSpec({
+    task,
+    contract,
+    headers,
+    sample,
+  }: {
+    task: string;
+    contract: CollectionContract;
+    headers: string[];
+    sample: string[];
+  }): Promise<LlmResult<AggregateSpec>> {
+    // a header the list shows twice is one value: an enum's values are meant to be unique
+    const fields = [...new Set(["", ...headers])];
+    return this.call<AggregateSpec>({
+      purpose: "collect",
+      schema: {
+        type: "object",
+        properties: {
+          op: {
+            type: "string",
+            enum: ["none", "count", "sum", "avg", "min", "max", "list", "top", "argmax", "argmin"],
+          },
+          field: { type: "string", ...oneOf(fields) },
+          filters: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                // free text, unlike the fields above: the host resolves a filter's field itself (a header, a word of
+                // one, a synonym, or stars) and reports one it can't
+                field: { type: "string" },
+                op: { type: "string", enum: ["eq", "neq", "contains", "gte", "lte", "between"] },
+                value: { type: "string" },
+              },
+              required: ["field", "op", "value"],
+              additionalProperties: false,
+            },
+          },
+          group_by: { type: "string", ...oneOf(fields) },
+          output: { type: "string", ...oneOf(fields) },
+          order: { type: "string", enum: ["asc", "desc", "none"] },
+          limit: { type: "integer" },
+          semantic_constraints: { type: "array", items: { type: "string" } },
+        },
+        required: ["op", "field", "filters", "group_by", "output", "order", "limit", "semantic_constraints"],
+        additionalProperties: false,
+      },
+      system:
+        "Derive, from the ORIGINAL user task only, whether its answer is a number or a selection computed over the rows of the list being read, and how to compute it from the row fields listed in headers (sample shows three rows). op: count (how many rows meet the conditions); sum, avg, min, max (of one numeric field over the rows that meet them); list (the output field of every row that meets them); top (the first N rows by field in order, N in limit); argmax or argmin (with group_by: the group with the most or fewest rows, named by its key; without: the row with the largest or smallest field, reported by its output field); none (the task wants no such computation, or these rows are not the records it asks about). filters hold only conditions a listed field decides exactly: a status, a star count (4 or 5 stars is stars gte 4; 1 or 2 stars is stars lte 2), a date range (between, as from..to), a name. A condition that needs a row's words read (a complaint about quality, a product of some kind) goes to semantic_constraints instead, and the computation then runs over the rows that meet it. field, group_by and output name headers exactly as listed, or are empty when none applies; never invent a header. limit is N for a top-N request, else 0. order is the direction the task ranks by, else none. op is none when no listed field holds the value the task defines: the task leaves out or adds a part that a listed total includes or lacks (excluding shipping, before tax, without the discount, a subtotal over an order total), or the answer is a detail only each record's own page shows (the color or size of an item inside an order, a product's attribute the row doesn't list); the reading then opens the records instead, and a wrong field would give a confident wrong answer.",
+      content: JSON.stringify({ original_task: trimTask(task), contract, headers, sample }),
+    });
+  }
+
+  /** The listCoverage switch: Drex's row screen kept rows but found no match, so the model judges those rows once
+   * before the step concludes there is none. It reads by meaning and quotes the words it judged by; a row whose text
+   * doesn't settle a constraint is needs_detail, never a guess. One text-only request. */
+  screenRows({
+    task,
+    contract,
+    rows,
+  }: {
+    task: string;
+    contract: CollectionContract;
+    rows: { row: number; text: string }[];
+  }): Promise<LlmResult<{ rows: RowVerdict[] }>> {
+    return this.call<{ rows: RowVerdict[] }>({
+      purpose: "collect",
+      schema: {
+        type: "object",
+        properties: {
+          rows: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                row: { type: "integer" },
+                verdict: { type: "string", enum: ["fails", "qualifies", "needs_detail"] },
+                quote: { type: "string" },
+              },
+              required: ["row", "verdict", "quote"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["rows"],
+        additionalProperties: false,
+      },
+      system: `Judge each listed row of a web page's list against every constraint of the collection contract, by meaning rather than literal words (a row titled "Loaf, Rye Caraway" is rye bread; "Review by Amanda: it broke in a week" complains about quality). fails: the row's own text shows a constraint broken. qualifies: it shows every constraint met. needs_detail: the text doesn't settle a constraint. quote is the exact words behind the verdict. One entry per row, in the rows' order. Never call a row qualifies on a guess.`,
+      content: JSON.stringify({ original_task: trimTask(task), contract, rows }),
     });
   }
 
@@ -1566,6 +1711,8 @@ evidence first, in at most 80 words: each thing the task asks for, and the fact 
 supported: true only when that evidence supports the whole answer: requested information appears in the facts (a fact recorded as the first qualifying item of a list verified to be sorted the requested way counts as the optimum); a page to open is the page the run ended on; a change to make is confirmed by a recorded action and its visible result.
 answer: the final answer in exactly the format the task text requires (when it gives a JSON object, its fields and allowed values, a date format or a list form, follow it exactly, with nothing around it). When supported is true, give the supported values and the format's success status if it has one. When it is false, never guess a value: use the format's failure or not-found status and error explanation if it has them, otherwise say in one line what is missing. The failure status is for a requested value that is missing or a change that was not made: values the facts record, or a change a recorded request or the site's saved message confirms, are answered with the success status even when the run's own check was unsure (a format with room for an explanation carries the doubt there).${
         recordsChanges(notes) ? ` ${CHANGE_RULE}` : ""
+      }${
+        accOn("aggregate") && hasComputed(notes) ? ` ${COMPUTED_RULE}` : ""
       } Never invent names, numbers, dates or pages.${
         accOn("answerGuard")
           ? " When the task gives a JSON format, answer is that JSON object alone, whether supported is true or false: never prose, never a status line."
@@ -1587,26 +1734,37 @@ answer: the final answer in exactly the format the task text requires (when it g
     task,
     step,
     notes,
+    links = false,
   }: {
     task: string;
     step: Pick<Step, "kind" | "goal" | "done_when" | "rules" | "texts">;
     notes: Record<string, unknown>;
-  }): Promise<LlmResult<{ why?: string; value?: string }>> {
+    /** aggregate: also give the chosen row's own link (open_url) when the step opens it */
+    links?: boolean;
+  }): Promise<LlmResult<{ why?: string; value?: string; open_url?: string }>> {
     // optional: a provider that doesn't enforce the schema can leave either out, and a missing value must not end the run
-    return this.call<{ why?: string; value?: string }>({
+    return this.call<{ why?: string; value?: string; open_url?: string }>({
       purpose: "resolve",
       oneShot: true,
-      maxOutput: 400,
+      maxOutput: 600,
       schema: {
         type: "object",
-        properties: { why: { type: "string" }, value: { type: "string" } },
-        required: ["why", "value"],
+        properties: {
+          why: { type: "string" },
+          value: { type: "string" },
+          ...(links ? { open_url: { type: "string" } } : {}),
+        },
+        required: ["why", "value", ...(links ? ["open_url"] : [])],
         additionalProperties: false,
       },
       system: `${PAGE_SAFETY}
 A browser agent read a list and saved what it found in notes (each note: the list's matches, with their row text, what their own page said, and their source page). The plan's next step uses those notes. Give what that step needs, from the notes only:
 why: first, in at most two sentences: which match the task and the step pick, and why.
-value: the exact text the step needs from the notes, copied as the notes show it: for a search, the item's exact name (an item named inside an order or record, not the order's number); for a choice among the matches, the chosen item's full name as listed. Judge items by meaning and by the task's and the step's own criteria (closest fit, cheapest, latest, best rated). A match marked not confirmed or not sure counts only when its own text shows it meets every condition. "" when the notes don't hold it.`,
+value: the exact text the step needs from the notes, copied as the notes show it: for a search, the item's exact name (an item named inside an order or record, not the order's number); for a choice among the matches, the chosen item's full name as listed. Judge items by meaning and by the task's and the step's own criteria (closest fit, cheapest, latest, best rated). A match marked not confirmed or not sure counts only when its own text shows it meets every condition. "" when the notes don't hold it.${
+        links
+          ? `\nopen_url: when the step opens, views or acts on one particular row the notes hold (a computed result's selected rows, latest first, or a match), that row's own link exactly as the notes write it (href or source); "" when the step opens nothing in particular or no link is given.`
+          : ""
+      }`,
       content: JSON.stringify({ task: trimTask(task), step, notes }),
     });
   }

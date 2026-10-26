@@ -12,9 +12,10 @@ import { publicMetadata } from "./candidates.ts";
 import { focusedEvidence } from "./focused.ts";
 import { revealAnswer, type Reveal, type Revealed, type Seen } from "./evidence.ts";
 import { RunBudget, RunLimit } from "./run-budget.ts";
-import { describeError } from "./errors.ts";
+import { describeError, Handover, ReadCap, Stopped } from "./errors.ts";
 import { runCostCap } from "./models.ts";
 import { costOn, costValue, drexImages, moveOptions, movesTask } from "./cost.ts";
+import { visualQuestion } from "./context.ts";
 import { CHANGE_RULE, accOn } from "./accuracy.ts";
 import type { Drex } from "./drex.ts";
 import type { LLM } from "./llm.ts";
@@ -240,10 +241,9 @@ function structured(text: string): boolean {
 const listOfMany = (text: string) =>
   structured(text) && text.startsWith("[") && (JSON.parse(text) as unknown[]).length > 1;
 
-class Stopped extends Error {}
-class Handover extends Error {} // a coding agent's run needs the person: it ends and says why instead of waiting
-/** A collect step used its model reads (MAX_COLLECT_CALLS): it ends with what it read. */
-export class ReadCap extends Error {}
+// the collect step's read cap lives in errors.ts with the other errors no step swallows; the tests import it with the
+// Agent from here
+export { ReadCap };
 // Model calls one collect step may make (its contract and list check included, so about four list or detail reads).
 // Without a cap, runs read result lists item by item, a call each, until the run's call cap, where the site's own
 // filters would have shown the answer; past this the step ends with what it read and the plan goes on.
@@ -357,7 +357,7 @@ export class Agent implements MacroHost {
   declare collectionMemory?: Map<string, CollectionMemory>;
   declare collectionMutationEpoch?: number;
   /** noteResolve: what a step got from the list notes it uses, by step and notes (a replan asks no second time). */
-  declare noteResolutions?: Map<string, { why: string; value: string }>;
+  declare noteResolutions?: Map<string, { why: string; value: string; open_url?: string }>;
   /** answerGuard: the final read found the task complete but wrote no answer; its evidence, for the final answer. */
   declare finalCheckEvidence?: string;
   /** revealEvidence: the evidence the run's last final read cited, whatever it found: the reveal's first literals */
@@ -369,6 +369,10 @@ export class Agent implements MacroHost {
   /** settingReadback: read-backs of the step running now that found a value missing (its own count: never the run's
    * incomplete checks) */
   declare readbackMisses: number;
+  /** rescueOneImage: helps asked of the LLM so far, by step index */
+  declare stepRescues: Map<number, number>;
+  /** sortCheck: the step's "done" refused because its list runs the wrong way by date (at most two a step) */
+  declare sortRefusals: number;
   /** settingReadback: the names of the buttons and links clicked in the step running now (actions, not values) */
   declare stepClicks: string[];
   /** settingReadback: the values the step running now set by a move: what it typed, the option it selected, the
@@ -452,6 +456,8 @@ export class Agent implements MacroHost {
     this.incompleteChecks = 0; // reads/verifies in a row that found their answer missing (MAX_INCOMPLETE_CHECKS)
     this.batchApproved = false; // inside a bulk action you already approved for its items
     this.readbackMisses = 0;
+    this.sortRefusals = 0;
+    this.stepRescues = new Map();
     this.stepClicks = [];
     this.stepChosen = [];
     this.record = [];
@@ -579,6 +585,8 @@ export class Agent implements MacroHost {
             ).json;
       this.log("plan", { plan: structuredClone(plan) });
       if (!hasSteps(plan)) throw new Error("The plan has no steps.");
+      // the planner copies the site map's paths as they are: one with no scheme is a page of the active site
+      this.resolveAddresses(plan.steps, active?.url);
       // the run stays on the task's website: a step that would open a search engine continues on the site instead
       this.site = L.taskSite(task, active?.url);
       const onSite = L.stayOnSite(plan.steps, this.site);
@@ -631,6 +639,7 @@ export class Agent implements MacroHost {
         // settingReadback: the read-back's misses and the controls clicked count within one step: a step that starts
         // (the next one, or one a replan put here) starts from none
         this.readbackMisses = 0;
+        this.sortRefusals = 0;
         this.stepClicks = [];
         this.stepChosen = [];
         if (this.planning && ["browse", "fill", "batch"].includes(String(step.kind)) && this.writeEvidenceFirst(step))
@@ -638,6 +647,30 @@ export class Agent implements MacroHost {
         // noteResolve: a step that acts on a list's notes gets the value it needs from them, not their JSON
         if (accOn("noteResolve") && this.planning && ["browse", "fill", "batch"].includes(String(step.kind)))
           await this.untilStopped(this.resolveNotes(step));
+        // aggregate: a browse step that names a chosen row by its number goes to that row's own link
+        if (accOn("aggregate") && this.planning && step.kind === "browse" && !step.open_url) {
+          const link = L.namedRowLink(step.goal ?? "", this.notes);
+          if (link && this.trusted.has(L.originOf(link))) {
+            step.open_url = link;
+            this.log("note_resolved", {
+              names: [],
+              value: "",
+              why: "the step names a chosen row by its number",
+              open_url: link,
+              opened: true,
+            });
+          }
+        }
+        // aggregate: a collect step about a row an earlier reading chose opens that row's own page and reads it there,
+        // instead of reading the whole list again
+        if (
+          accOn("noteResolve") &&
+          accOn("aggregate") &&
+          this.planning &&
+          step.kind === "collect" &&
+          (await this.untilStopped(this.followSelected(step)))
+        )
+          continue;
         // deadUrls: where the run was before the step opened its address, to go back to if that address is dead
         const cameFrom = accOn("deadUrls") && this.planning && step.open_url ? await this.hereUrl() : "";
         await this.untilStopped(this.prepare(step));
@@ -693,6 +726,8 @@ export class Agent implements MacroHost {
                 .then((i) => i.url)
                 .catch(() => "")
             : "";
+          // a path with no scheme is a page of the one the run is on, and it is judged as that page's address
+          this.resolveAddresses(repairs, here);
           // deadUrls: a replan doesn't open an address that already showed a not-found page
           for (const r of repairs) if (r.open_url && this.deadUrls.has(r.open_url)) r.open_url = "";
           const kept = L.keepPage(repairs, here);
@@ -1018,8 +1053,37 @@ export class Agent implements MacroHost {
     } catch {}
   }
 
+  /** A path with no scheme (L.resolveAddress) as an address on the page the agent is on (here) or, when that is no web
+   * page, on the first address written in the task, else the user's first tab: the first of them that is a web page
+   * decides, and the path stays on its site. Unchanged when none is. */
+  resolveOn(address: string, here: string | null | undefined): string {
+    const web = (url: string | null | undefined): string => (url && /^https?:/i.test(url) ? url : "");
+    return L.resolveAddress(address, web(here) || web(L.firstUrl(this.task)) || web(this.startTabs[0]?.url));
+  }
+
+  /** An open_url as a browser can open it: the site map prints paths, which the planner copies as they are, and they
+   * resolve against the page the agent's tab shows, before webOnly judges the address. */
+  async absoluteUrl(address: string): Promise<string> {
+    if (!L.isRelativeAddress(address)) return address;
+    const tab = this.agentTabId ? await chrome.tabs.get(this.agentTabId).catch(() => null) : null;
+    return this.resolveOn(address, tab?.url);
+  }
+
+  /** The steps' open_urls as a browser can open them, resolved on here: the page the agent is on (for the first plan,
+   * the one the site map was read on). Each address that changes is logged. */
+  resolveAddresses(steps: Step[], here: string | null | undefined): void {
+    for (const s of steps) {
+      if (!s.open_url || !L.isRelativeAddress(s.open_url)) continue;
+      const url = this.resolveOn(s.open_url, here);
+      if (url === s.open_url) continue;
+      this.log("tab", { what: `resolved ${s.open_url} to ${url}` });
+      s.open_url = url;
+    }
+  }
+
   /** A background tab of the agent's own, in its "Drex" tab group, for reading one detail page of a list. */
-  async openDetailTab(url: string): Promise<chrome.tabs.Tab & { id: number }> {
+  async openDetailTab(address: string): Promise<chrome.tabs.Tab & { id: number }> {
+    const url = await this.absoluteUrl(address);
     webOnly(url);
     const t = await tabsCall(() => chrome.tabs.create({ windowId: this.windowId, url, active: false }));
     await this.group(t.id);
@@ -1027,7 +1091,8 @@ export class Agent implements MacroHost {
     return t;
   }
 
-  async openOwnTab(url: string): Promise<void> {
+  async openOwnTab(address: string): Promise<void> {
+    const url = await this.absoluteUrl(address);
     webOnly(url);
     let from: string | undefined; // the page the agent's own tab showed before this one
     // the page the agent was on, own tab or the user's: whether the new page is a working copy of its logical tab
@@ -1118,21 +1183,111 @@ export class Agent implements MacroHost {
     if (!names.length) return;
     const key = JSON.stringify([step.goal, names, names.map((n) => this.notes[n])]);
     let resolved = this.noteResolutions?.get(key);
+    const notes = Object.fromEntries(names.map((n) => [n, L.collectionNote(this.notes[n])]));
+    // aggregate: a step that opens one of the rows a reading chose goes to that row's own link
+    const links = accOn("aggregate");
     if (!resolved) {
       const r = await this.llmCall("resolve", () =>
         this.llm.resolveNote({
           task: this.task,
           step: { kind: step.kind, goal: step.goal, done_when: step.done_when, rules: step.rules, texts: step.texts },
-          notes: Object.fromEntries(names.map((n) => [n, L.collectionNote(this.notes[n])])),
+          notes,
+          links,
         }),
       );
-      resolved = { why: r.json.why ?? "", value: (r.json.value ?? "").trim() };
+      resolved = {
+        why: r.json.why ?? "",
+        value: (r.json.value ?? "").trim(),
+        open_url: (r.json.open_url ?? "").trim(),
+      };
       this.noteResolutions?.set(key, resolved);
     }
     const filled = L.withNoteValue(step, names, resolved.value);
     Object.assign(step, filled);
     for (const n of names) if (resolved.value) this.notes[`${n}_value`] = resolved.value;
-    this.log("note_resolved", { names, value: resolved.value, why: resolved.why, goal: step.goal });
+    // only a link the notes hold, on a site the run trusts, for a browse step that has no address of its own
+    const known = new Set(Object.values(notes).flatMap((n) => [...L.noteLinks(n)]));
+    const opened =
+      links &&
+      !!resolved.open_url &&
+      step.kind === "browse" &&
+      !step.open_url &&
+      known.has(resolved.open_url) &&
+      this.trusted.has(L.originOf(resolved.open_url));
+    if (opened) step.open_url = resolved.open_url;
+    this.log("note_resolved", {
+      names,
+      value: resolved.value,
+      why: resolved.why,
+      goal: step.goal,
+      ...(links ? { open_url: resolved.open_url ?? "", opened } : {}),
+    });
+  }
+
+  /** aggregate: a collect step that names a list reading whose computed result chose rows (computed.selected, with
+   * their links) becomes a browse to the chosen row's own link and a read of what the step asks, saved under the
+   * step's name. True when the plan was rewritten (the browse runs next); false leaves the collect step as it is. */
+  async followSelected(step: Step): Promise<boolean> {
+    const names = L.collectionNoteRefs(step, this.notes).filter((n) => {
+      const computed = L.collectionNote(this.notes[n])?.computed as { selected?: unknown[] } | undefined;
+      return !!computed?.selected?.length;
+    });
+    if (!names.length) return false;
+    const notes = Object.fromEntries(names.map((n) => [n, L.collectionNote(this.notes[n])]));
+    const r = await this.llmCall("resolve", () =>
+      this.llm.resolveNote({
+        task: this.task,
+        step: { kind: "browse", goal: step.goal, done_when: step.done_when, rules: step.rules, texts: step.texts },
+        notes,
+        links: true,
+      }),
+    );
+    const url = (r.json.open_url ?? "").trim();
+    const known = new Set(Object.values(notes).flatMap((n) => [...L.noteLinks(n)]));
+    const ok = !!url && known.has(url) && this.trusted.has(L.originOf(url));
+    this.log("note_resolved", {
+      names,
+      value: r.json.value ?? "",
+      why: r.json.why ?? "",
+      open_url: url,
+      opened: ok,
+      follow: true,
+    });
+    if (!ok) return false;
+    const value = (r.json.value ?? "").trim();
+    const open: Step = {
+      kind: "browse",
+      goal: `Open the record chosen from ${names.join(", ")}${value ? ` (${value})` : ""}: its own page is open`,
+      open_url: url,
+      use_tab: -1,
+      done_when: "The record's own page is open",
+      rules: "",
+      max_moves: 4,
+      question: "",
+      choices: [],
+      texts: [],
+      save_as: "",
+    };
+    const read: Step = {
+      kind: "read",
+      goal: `On this record's page, ${step.goal}`,
+      open_url: "",
+      use_tab: -1,
+      done_when: "",
+      rules: step.rules ?? "",
+      max_moves: 0,
+      question: "",
+      choices: [],
+      texts: [],
+      save_as: step.save_as ?? "",
+    };
+    this.plan.steps.splice(this.index, 1, open, read);
+    this.log("plan", {
+      plan: structuredClone(this.plan),
+      replanned: true,
+      why: `The step is about the record ${names.join(", ")} chose: it opens that record's page and reads it there.`,
+    });
+    return true;
   }
 
   /** A step that would type a collect step's evidence (its JSON) gets a read step before it that writes that data in
@@ -1275,12 +1430,17 @@ export class Agent implements MacroHost {
 
   /** The agent's tab, in front and with the debugger attached. Follows a tab that the last click opened. */
   /** navMap: the active tab's own navigation links for the planner (Tab.navMap); none without the switch, without a
-   * tab, or on a page that can't be read. */
+   * tab, on a page that can't be read, or when siteMapWanted says no (a small map, or no closed-menu entry that
+   * matches the task). */
   async siteMap(): Promise<string[]> {
     if (!accOn("navMap") || !this.agentTabId) return [];
     const all = await this.currentTab()
       .then((t) => t.navMap())
       .catch(() => []);
+    if (!L.siteMapWanted(all, this.task)) {
+      this.log("site_map", { links: all.length, given: 0, hidden: 0, gated: true });
+      return [];
+    }
     const map = L.siteMapFor(all, this.task);
     this.log("site_map", {
       links: all.length,
@@ -1712,6 +1872,29 @@ export class Agent implements MacroHost {
    * confirms is found; its objection joins the note). The third ends the step anyway: its values go to the notes as
    * unverified_settings, for the final read. The misses are the read-back's own (readbackMisses): never the run's
    * incomplete checks, so the read-back never fails a run. */
+  /** sortCheck: whether the list shows its rows in the date order the step asks for. False (the step goes on) when its
+   * rows' dates run the other way, at most twice a step; true when the switch is off, the step asks for no date order,
+   * or the rows show too few dates to tell. */
+  async dateOrderShown(step: Step, history: HistoryEntry[]): Promise<boolean> {
+    if (!accOn("sortCheck") || !this.planning) return true;
+    const wanted = L.wantedDateOrder(step);
+    if (!wanted || this.sortRefusals >= 2) return true;
+    const rows = await this.currentTab()
+      .then((t) => t.items())
+      .then((items) => items.map((i) => i.text))
+      .catch(() => [] as string[]);
+    const shown = L.shownDateOrder(rows);
+    this.log("sort_check", { wanted, shown: shown?.order ?? null, rows: rows.length });
+    if (!shown || shown.order === wanted) return true;
+    this.sortRefusals++;
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    history.push({
+      what: `step done refused: the list runs ${shown.order === "asc" ? "oldest" : "newest"} first (top row ${day(shown.first)}, last ${day(shown.last)}), and the step wants it ${wanted === "desc" ? "newest" : "oldest"} first: sort it the other way (click the date column's header again, or pick the other direction)`,
+      changed: false,
+    });
+    return false;
+  }
+
   async settingsApplied(step: Step, scr: Looked, history: HistoryEntry[]): Promise<boolean> {
     if (!this.readsBack(step)) return true;
     // a text that carries a note goes to a page only on the sites the task started on or named, as typing it would
@@ -2017,6 +2200,12 @@ export class Agent implements MacroHost {
         // refused "step done" costs the step no move (at most two are refused before it ends anyway): a step at its
         // last move would otherwise run out of moves, where Drex's word ended it before
         if (!committed && !(await this.settingsApplied(step, scr, history))) {
+          budget++;
+          continue;
+        }
+        // sortCheck: a step that sorts a list by date ends once the rows run the way it asks (one click on a date
+        // header sorts it oldest first, and the oldest orders were then reported as the most recent)
+        if (!committed && !(await this.dateOrderShown(step, history))) {
           budget++;
           continue;
         }
@@ -3085,11 +3274,22 @@ export class Agent implements MacroHost {
     texts: StepText[],
     about = "help",
   ): Promise<Rescue> {
+    // rescueOneImage: the first help of a step on a screen whose controls are tagged, for a task that is not about how
+    // things look, gets the tagged screenshot alone (the raw one repeats it for color and shape); a second help in the
+    // same step gets both
+    const oneImage =
+      costOn("rescueOneImage") &&
+      scr.els.length > 0 &&
+      !visualQuestion(this.task) &&
+      (this.stepRescues.get(this.index) ?? 0) === 0;
+    this.stepRescues.set(this.index, (this.stepRescues.get(this.index) ?? 0) + 1);
     // the state is Drex's: its "only these" texts once made the helper type the origin city into the destination
     const note =
-      (scr.els.length
-        ? "(Image 1 is the raw screen for color and visual details; Image 2 adds element tags for locating controls.)"
-        : "(Image 1 is raw, Image 2 tagged. Nothing on this screen could be tagged: to click something, use click_point.)") +
+      (oneImage
+        ? "(The image has element tags for locating controls.)"
+        : scr.els.length
+          ? "(Image 1 is the raw screen for color and visual details; Image 2 adds element tags for locating controls.)"
+          : "(Image 1 is raw, Image 2 tagged. Nothing on this screen could be tagged: to click something, use click_point.)") +
       (texts.length
         ? " (The TEXT YOU CAN TYPE list limits Drex, not you: with a typing move, put whatever text the task needs in text.)"
         : "");
@@ -3110,7 +3310,7 @@ export class Agent implements MacroHost {
         state: `${state}\n${note}\nVALID LOGICAL TABS: ${JSON.stringify(logicalTabs)}. Step use_tab=-1 continues current tab; other values must be listed logical indices, not a guessed count of windows.`,
         reason,
         image: scr.img2,
-        rawImage: scr.img1,
+        rawImage: oneImage ? null : scr.img1,
         opts: helperOpts,
         replan: this.planning,
         finish: !this.planning,

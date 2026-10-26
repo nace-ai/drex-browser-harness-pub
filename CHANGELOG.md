@@ -6,16 +6,39 @@ Each entry names the part it changes: the Chrome extension or the local runner (
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-26
+
+### Added
+
+- **Chrome extension**: `sortCheck`, on by default: a step that sorts a list by date ends only once the rows' dates run
+  the asked way (newest or oldest first); a wrong order refuses "done" with a hint to sort the other way, at most twice a
+  step. It makes no model call.
+- **Chrome extension**: more optional accuracy switches, off by default and set at build time with `DREX_ACC`:
+  - `aggregate`: a collect step's list rows are typed in code, and the count, total, mean, least, most, ranking or top N
+    the task asks for is computed over every row read; a computed result carries the chosen rows with their links, ties
+    are reported whole, and a total refuses a field the task leaves a part out of ("excluding shipping").
+  - `listCoverage`: a collect step reads on until the rows read reach the count the list states.
+  - `styleKeys`: the helper may press Control or Meta with b, i or u to bold, italicize or underline selected text.
+  - `topNStop`: "the N most recent" reads the first N qualifying rows of a list proven in date order and only their
+    details.
+- **Chrome extension**: optional cost switches, off by default and set at build time with `DREX_COST`: `rescueOneImage`
+  (the first help of a step on a screen with tagged controls gets the tagged screenshot alone) and `planCompact` (plan
+  steps carry only the fields they set).
+
 ### Changed
 
 - **Local runner**: the `drex-browser-run` cloud worker speaks protocol 2: it requires Drex's `funding` envelope,
   meters every provider call and sandbox second against it outside Chromium, and refuses protocol 1 configurations
   ([docs/worker.md](docs/worker.md)).
+- **Chrome extension**: `navMap` is given to the planner only when a closed-menu entry of the site matches the task, and
+  stays off by default.
 
 ### Fixed
 
 - **Local runner**: cancelling a run while Chromium is still starting ends it at once; on Linux and macOS the starting
   browser is stopped too.
+- **Chrome extension**: a relative `open_url` (a site map path) resolves on the page the run is on instead of being
+  refused as malformed, and never leaves that page's origin.
 
 ## [0.1.4] - 2026-10-22
 

@@ -1,8 +1,10 @@
 // The pure parts of the agent: the moves Drex chooses between, the state text it reads, and small checks.
 // No chrome.* here, so node:test covers it (test/logic.test.mjs).
+import { parseDate as dateMs } from "./records.ts";
 import type {
   BatchStep,
   Box,
+  CollectionContract,
   HistoryEntry,
   LocatedEl,
   MoveOption,
@@ -143,6 +145,95 @@ export function collectionNote(text: string | undefined): Record<string, unknown
   }
 }
 
+/** aggregate: every link a list reading's note holds: its computed result's selected rows and its matches' sources.
+ * A link a later step opens must be one of these. */
+export function noteLinks(note: Record<string, unknown> | null): Set<string> {
+  const links = new Set<string>();
+  if (!note) return links;
+  const computed = note.computed as { selected?: { href?: unknown }[] } | undefined;
+  for (const r of computed?.selected ?? []) if (typeof r.href === "string" && originOf(r.href)) links.add(r.href);
+  for (const m of (note.matches as { source?: unknown }[] | undefined) ?? [])
+    if (typeof m.source === "string" && originOf(m.source)) links.add(m.source);
+  return links;
+}
+
+/** aggregate: the link of the one chosen row a step names by its number. A step that names a long number (an order or
+ * record number, 5 digits or more) shown in exactly one row a reading chose (computed.selected) or matched goes to that
+ * row's link; none when no row, or more than one, shows it. */
+export function namedRowLink(goal: string, notes: Record<string, string | undefined>): string {
+  const numbers = new Set(goal.match(/\b\d{5,}\b/g) ?? []);
+  if (!numbers.size) return "";
+  const rows: { text: string; href: string }[] = [];
+  for (const text of Object.values(notes)) {
+    const note = collectionNote(text);
+    if (!note) continue;
+    const computed = note.computed as { selected?: { text?: unknown; href?: unknown }[] } | undefined;
+    for (const r of computed?.selected ?? [])
+      if (typeof r.text === "string" && typeof r.href === "string") rows.push({ text: r.text, href: r.href });
+    for (const m of (note.matches as { row?: unknown; source?: unknown }[] | undefined) ?? [])
+      if (typeof m.row === "string" && typeof m.source === "string") rows.push({ text: m.row, href: m.source });
+  }
+  const links = new Set(
+    rows
+      .filter((r) => originOf(r.href) && [...numbers].some((n) => new RegExp(`\\b${n}\\b`).test(r.text)))
+      .map((r) => r.href),
+  );
+  return links.size === 1 ? ([...links][0] ?? "") : "";
+}
+
+/** Whether any note is a list reading's JSON with an object under "computed" (aggregate: the count, total or ranking
+ * the step calculated in code), so that the final read and the final answer get the rule for reporting it. One whose
+ * value is null still counts: the rule is what says that value is missing. */
+export function hasComputed(notes: unknown): boolean {
+  if (!notes || typeof notes !== "object") return false;
+  return Object.values(notes).some((note) => {
+    if (typeof note !== "string") return false;
+    try {
+      const computed = (JSON.parse(note) as { computed?: unknown } | null)?.computed;
+      return !!computed && typeof computed === "object" && !Array.isArray(computed);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** A per-page select's option: a whole number of rows, with "per page" after it or not ("36", "36 per page"). */
+const PAGE_SIZE_OPTION = /^\s*(\d+)(?:\s*per\s+page)?\s*$/i;
+/** What a per-page select is named or labelled ("Show", "Items per page", "Page size", "Display"). */
+const PAGE_SIZE_NAME = /\b(?:per[\s-]page|page[\s-]?size|show|limiter|display)\b/i;
+/** listCoverage: the page's per-page control, a native select whose name or label says per page / page size / show /
+ * limiter / display and whose options are whole numbers with a largest of 12 or more, while a smaller one is chosen;
+ * null when there is none. A largest over 1000 is no page size: a select of years (2022, 2023) picks what the list
+ * holds, not how much of it a page shows. */
+export function pageSizeControl(
+  els: { node: number; name?: string; text: string; select?: boolean; options?: string[]; selectedIndex?: number }[],
+): { node: number; max: number; current: number } | null {
+  for (const el of els) {
+    if (!el.select || !el.options?.length || !PAGE_SIZE_NAME.test(`${el.name ?? ""} ${el.text}`)) continue;
+    const sizes = el.options.map((option) => PAGE_SIZE_OPTION.exec(option)?.[1]);
+    if (sizes.some((size) => size === undefined)) continue;
+    const numbers = sizes.map(Number);
+    const max = Math.max(...numbers);
+    const current = numbers[el.selectedIndex ?? 0];
+    if (current === undefined || max < 12 || max > 1000 || current >= max) continue;
+    return { node: el.node, max, current };
+  }
+  return null;
+}
+
+/** Words of a task that ask for a computation over a list's rows. */
+const AGGREGATE_WORDS = /\b(?:how many|how much|total|sum|count|average|the most|the fewest|top \d+)\b/i;
+/** aggregate: the contract or the task asks for a computation over rows: every row of the list (enumerate_all), the top
+ * N of a ranking, or a count, total, average, most or fewest the task names. The task is read without its answer-format
+ * paragraphs, whose words describe the answer's shape. */
+export function wantsAggregate(contract: CollectionContract, task: string): boolean {
+  return (
+    contract.intent === "enumerate_all" ||
+    (typeof contract.ranked_count === "number" && contract.ranked_count > 1) ||
+    AGGREGATE_WORDS.test(taskForMoves(task))
+  );
+}
+
 /** The notes a step uses that hold a list reading's JSON: named as {{name}} in its texts, goal, done_when or rules,
  * or by name in its goal, done_when or rules (a plan writes "the best one from fitting_storage_options"). */
 export function collectionNoteRefs(
@@ -207,6 +298,47 @@ export function originOf(url: string): string {
   } catch {
     return "";
   }
+}
+
+/** An address with no scheme, such as the site map's paths ("/admin/sales/order/") or "?page=2": what resolveAddress
+ * resolves. Text with a space in it is prose, not an address, and so is anything that isn't text (an open_url is the
+ * LLM's JSON: a number or null gets here as well). */
+export function isRelativeAddress(url: unknown): boolean {
+  if (typeof url !== "string") return false;
+  const address = url.trim();
+  if (!address || /\s/.test(address)) return false;
+  try {
+    new URL(address);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/** A step's open_url as a browser can open it. The site map prints a link of the page's own site as its path and query
+ * ("/admin/sales/order/") and the planner copies that as it is: an address with no scheme resolves on base, the page
+ * the agent is on, and never leaves that page's origin. A path with one leading "/" is the exact inverse of how the map
+ * prints a link: base.origin + path. Any other relative form (a query, "x.html", "../x") resolves as a link on the page
+ * would and must come out on the same origin. "//host/x", "/\host/x" and "\\host\x" name another site, and a link of
+ * this site whose path starts with a double slash is printed the same way, so they come back as written. So do an
+ * absolute URL and what webOnly must refuse (a non-web scheme, prose, a path with no web page to resolve it on). */
+export function resolveAddress(url: string, base: string | null | undefined): string {
+  if (!isRelativeAddress(url)) return url;
+  try {
+    const page = new URL(base ?? "");
+    if (!/^https?:$/.test(page.protocol)) return url;
+    const address = url.trim();
+    const resolved = /^\/(?![/\\])/.test(address) ? new URL(page.origin + address) : new URL(address, page);
+    return resolved.origin === page.origin ? resolved.href : url;
+  } catch {
+    return url;
+  }
+}
+
+/** The first http(s) address written in a text (the task), without the punctuation after it, or "". */
+export function firstUrl(text: string | null | undefined): string {
+  const found = /\bhttps?:\/\/[^\s<>"'`]+/i.exec(text ?? "")?.[0] ?? "";
+  return found.replace(/[.,;:!?)\]}]+$/, "");
 }
 
 /** Steps a replan brings (from the LLM, which read the page) may only open sites the run already trusts: the user's
@@ -281,28 +413,68 @@ export function guessedUrl(url: string, task: string, tabUrls: (string | undefin
   return !task.includes(bare(url));
 }
 
+/** sortCheck: the date order a step asks the list to be in: desc for newest/latest/most recent first, asc for
+ * oldest/earliest first, null for a step that sorts by no date (or doesn't sort). */
+export function wantedDateOrder(step: Pick<Step, "goal" | "done_when">): "asc" | "desc" | null {
+  const t = `${step.goal ?? ""} ${step.done_when ?? ""}`;
+  if (!/\b(sort|sorted|sorting|order(?:ed)? by|newest first|latest first|oldest first|descending|ascending)\b/i.test(t))
+    return null;
+  if (!/\b(date|time|newest|latest|most recent|recent|oldest|earliest|created|purchased|placed)\b/i.test(t))
+    return null;
+  if (/\b(newest|latest|most recent|recent first|descending|desc)\b/i.test(t)) return "desc";
+  if (/\b(oldest|earliest|ascending|asc)\b/i.test(t)) return "asc";
+  return null;
+}
+
+/** sortCheck: the order the list's rows show by their dates: the first date each row text holds, read top to bottom.
+ * asc or desc when at least three rows show a date and the first and last differ, with the dates seen; else null. */
+export function shownDateOrder(rows: string[]): { order: "asc" | "desc"; first: number; last: number } | null {
+  const dates = rows.map((r) => dateMs(r)).filter((d): d is number => d !== null);
+  const first = dates[0],
+    last = dates.at(-1);
+  if (dates.length < 3 || first === undefined || last === undefined || first === last) return null;
+  return { order: first < last ? "asc" : "desc", first, last };
+}
+
 /** navMap: the site map lines the planner gets: every link the page shows (at most 50), then the hidden ones (inside
  * closed menus) whose menu path shares a word with the task (its first five letters, so "switch" finds "Switches"),
  * at most MAX_SITE_MAP lines in all. A storefront's 250 category links would otherwise grow every plan call by about
  * 5,000 tokens. */
 const MAX_SITE_MAP = 80;
 const MAX_SHOWN_LINKS = 50;
-export function siteMapFor(lines: string[], task: string): string[] {
-  const stems = new Set(
+/** The words of a task that find its place in a site's menus: those of four letters or more, by their first five
+ * letters, so "switch" finds "Switches". */
+export function taskStems(task: string): Set<string> {
+  return new Set(
     normalizeLiteral(task)
       .split(" ")
       .filter((w) => w.length >= 4)
       .map((w) => w.slice(0, 5)),
   );
+}
+/** A map line's menu path (the part before its " -> ") has a word that starts like one of the stems. */
+function pathHasStem(line: string, stems: Set<string>): boolean {
+  const path = line.slice(0, line.lastIndexOf(" -> "));
+  return normalizeLiteral(path)
+    .split(" ")
+    .some((w) => w.length >= 4 && stems.has(w.slice(0, 5)));
+}
+export function siteMapFor(lines: string[], task: string): string[] {
+  const stems = taskStems(task);
   const shown = lines.filter((l) => !l.endsWith("(in a closed menu)")).slice(0, MAX_SHOWN_LINKS);
-  const hidden = lines.filter((l) => {
-    if (!l.endsWith("(in a closed menu)")) return false;
-    const path = l.slice(0, l.lastIndexOf(" -> "));
-    return normalizeLiteral(path)
-      .split(" ")
-      .some((w) => w.length >= 4 && stems.has(w.slice(0, 5)));
-  });
+  const hidden = lines.filter((l) => l.endsWith("(in a closed menu)") && pathHasStem(l, stems));
   return [...shown, ...hidden].slice(0, MAX_SITE_MAP);
+}
+/** navMap's gate wants a map at least this long: a shorter one is a nav bar, not a menu system worth giving the
+ * planner (reddit's holds 19 links; Magento's admin 94, its storefront 250). */
+const MIN_SITE_MAP_LINKS = 30;
+/** navMap's gate: whether the planner gets the site map at all. Only when the map holds MIN_SITE_MAP_LINKS lines or
+ * more and a hidden entry (one inside a closed menu) matches the task, by the stems siteMapFor uses: that is a route
+ * the page doesn't show. A map of shown links alone only repeats what Drex sees on the page. */
+export function siteMapWanted(lines: string[], task: string): boolean {
+  if (lines.length < MIN_SITE_MAP_LINKS) return false;
+  const stems = taskStems(task);
+  return lines.some((l) => l.endsWith("(in a closed menu)") && pathHasStem(l, stems));
 }
 
 /** A replan's step that would reopen the site the run is on at its home page, or the very page it is on, continues on
