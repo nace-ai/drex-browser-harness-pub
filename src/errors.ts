@@ -1,4 +1,12 @@
-// Errors from model calls, described for the run's record.
+// Errors from model calls, described for the run's record, and the errors that end a step or the run, which no step's
+// own work swallows (agent.ts throws them; the collect macros let them through).
+
+/** The run was stopped: by you, or by a move you declined. */
+export class Stopped extends Error {}
+/** A coding agent's run needs the person: it ends and says why instead of waiting. */
+export class Handover extends Error {}
+/** A collect step used its model reads (agent.ts MAX_COLLECT_CALLS): it ends with what it read. */
+export class ReadCap extends Error {}
 
 /** What an SDK error says beneath its wrapper ("Failed to process successful response" wraps the real cause): each
  * error of its cause chain with its status, the response's request id, content type and length, and the start of

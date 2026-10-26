@@ -22,6 +22,7 @@ import type {
   PointTarget,
   Problem,
   PublicMetadata,
+  RawRecord,
   ReadBack,
   SliderResult,
   Viewport,
@@ -310,6 +311,114 @@ const ITEM_FN = `function () {
   const cb = this.querySelector(${JSON.stringify(CHECKBOX_SEL)});
   const checked = !!cb && (cb.checked === true || cb.getAttribute("aria-checked") === "true");
   return [text.slice(0, ${ITEM_TEXT_CHARS}), !!cb, checked];
+}`;
+// One row as a record, so that a count, total or ranking over a list is computed in code (records.ts types it). A
+// table row's cells are each named by its own data-th (responsive tables label cells so), else by the cell in the same
+// place of the header row (the fullest row of the table's own head, form fields aside, else its first row with
+// header cells), else by its place. A card's parts are named by what it shows: a term and its detail, a header cell
+// and the cell after it, data-th, the first part whose class or itemprop names a common field, and "Label: value"
+// texts, each label once. The rating is the first part that looks like stars or a percentage, as shown; the link is
+// the one with the most text, which names the row where an icon or "Edit" link acts on it. null when the row is gone.
+// Nothing here knows any site.
+const RECORD_VALUE_CHARS = 200;
+const RECORD_HEADER_CHARS = 40;
+const RECORD_RATING_CHARS = 40;
+const RECORD_CELLS = 24;
+const RECORD_CARD_PAIRS = 16;
+const RECORD_TOKENS = "author name title price date time status rating sku qty total customer".split(" ");
+const RATING_SEL = '[class*=rating], [class*=stars], [class*=star-], [aria-label*="star" i], [title$="%"]';
+const RECORD_CELL_SEL = "th, td, [role=columnheader], [role=rowheader], [role=cell], [role=gridcell]";
+const RECORD_FN = `function () {
+  if (!this.isConnected) return null;
+  const flat = (t) => (t || "").split(/\\s+/).join(" ").trim();
+  const text = (e) => flat(e.innerText || e.textContent);
+  const pair = (label, value) =>
+    [flat(label).slice(0, ${RECORD_HEADER_CHARS}), flat(value).slice(0, ${RECORD_VALUE_CHARS})];
+  const cells = [];
+  if (this.matches("tr, [role=row]")) {
+    // a cell of any kind counts, in the header row and in this row alike: a blank corner cell or a row header picked
+    // in one and not the other would move every name after it onto the wrong cell
+    const cellsOf = (row) => Array.from(row.children).filter((c) => c.matches(${JSON.stringify(RECORD_CELL_SEL)}));
+    const table = this.closest("table, [role=table], [role=grid]");
+    // whether a cell shows text outside its form fields: a filter's select shows its options' text, which names no
+    // column, while a heading's button (a sortable heading) carries its column's name; script, style and template
+    // show nothing, as in innerText. Read in place, not from a clone: cloning runs a custom element's constructor in
+    // the page
+    const shows = (c) => {
+      const walk = c.ownerDocument.createTreeWalker(c, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+        acceptNode: (e) =>
+          e.nodeType === 1 && e.matches("input, select, textarea, script, style, template")
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_ACCEPT,
+      });
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) if (t.nodeType === 3 && t.data.trim()) return true;
+      return false;
+    };
+    // the names are the row of the table's own head with the most cells that show text; of rows as full, the one with
+    // more header cells, then the lower. A grouping row above the names spans fewer cells; a row of filters under them
+    // shows inputs and selects, or labels in plain cells. With no head, the first row with header cells names them.
+    let head = null;
+    let best = [-1, -1];
+    for (const r of table ? table.querySelectorAll(":scope > thead > tr") : []) {
+      const all = cellsOf(r);
+      const score = [all.filter(shows).length, all.filter((c) => c.matches("th, [role=columnheader]")).length];
+      if (score[0] > best[0] || (score[0] === best[0] && score[1] >= best[1])) {
+        head = r;
+        best = score;
+      }
+    }
+    if (table && !head)
+      head = Array.from(table.querySelectorAll("tr, [role=row]")).find(
+        (r) => r.querySelector("th, [role=columnheader]"),
+      );
+    const headers = head && head !== this ? cellsOf(head).map(text) : [];
+    for (const [i, c] of cellsOf(this).entries())
+      cells.push(pair(c.getAttribute("data-th") || headers[i] || "col" + (i + 1), text(c)));
+  } else {
+    // a part with no label or no value says nothing, and a label seen already would only repeat a field: the first is
+    // the one kept
+    const named = new Set();
+    const add = (label, value) => {
+      const p = pair(label, value);
+      if (!p[0] || !p[1] || named.has(p[0].toLowerCase()) || cells.length >= ${RECORD_CARD_PAIRS}) return;
+      named.add(p[0].toLowerCase());
+      cells.push(p);
+    };
+    for (const [term, detail] of [["dt", "dd"], ["th", "td"]])
+      for (const e of this.querySelectorAll(term)) {
+        const next = e.nextElementSibling;
+        if (next && next.matches(detail)) add(text(e), text(next));
+      }
+    for (const e of this.querySelectorAll("[data-th]")) add(e.getAttribute("data-th"), text(e));
+    for (const token of ${JSON.stringify(RECORD_TOKENS)}) {
+      if (named.has(token)) continue;
+      const e = this.querySelector('[class*="' + token + '"], [itemprop*="' + token + '"]');
+      if (e) add(token, e.getAttribute("content") || e.innerText);
+    }
+    for (const e of this.querySelectorAll("*")) {
+      const m = e.children.length ? null : /^([A-Za-z][\\w /()-]{1,30}):\\s*(.{1,200})$/.exec(text(e));
+      if (m) add(m[1], m[2]);
+    }
+  }
+  // a discount badge ("Save 20%", "20% off") is no rating, though its title ends in a percent like one
+  const said = (e) => flat(e.getAttribute("title") || e.getAttribute("aria-label") || e.innerText);
+  const star = [...this.querySelectorAll(${JSON.stringify(RATING_SEL)})].find(
+    (e) => !/\b(save|off|discount|sale|deal)\b/i.test(said(e)),
+  );
+  const shown = star ? said(star) : "";
+  let href = "";
+  let most = -1;
+  for (const a of [this, ...this.querySelectorAll("a[href]")]) {
+    // an svg link's href is an object, not its address
+    if (!a.matches("a[href]") || typeof a.href !== "string") continue;
+    const r = a.getBoundingClientRect();
+    const n = text(a).length;
+    if (r.width && r.height && n > most) {
+      href = a.href;
+      most = n;
+    }
+  }
+  return [cells.slice(0, ${RECORD_CELLS}), shown.slice(0, ${RECORD_RATING_CHARS}) || null, href];
 }`;
 // Scrolls a row's checkbox into view and returns its centre and state, or null.
 const CHECKBOX_FN = `function () {
@@ -1734,6 +1843,22 @@ export class Tab {
     return out;
   }
 
+  /** The rows items() found, read as records (RECORD_FN) in their order: each one's header-to-cell pairs, its rating
+   * as shown and its link. A row whose node is gone reads as no cells, no rating and no link. */
+  async records(items: PageItem[]): Promise<RawRecord[]> {
+    // a page script that throws resolves to undefined rather than rejecting: that row reads as empty too
+    const read = (await Promise.all(items.map((item) => this.on(item.node, RECORD_FN).catch(() => null)))) as (
+      [[string, string][], string | null, string] | null | undefined
+    )[];
+    await this.send("Runtime.releaseObjectGroup", { objectGroup: "drex" }).catch(() => undefined);
+    return items.map((item, index) => {
+      const got = read[index];
+      return got
+        ? { index, text: item.text, cells: got[0], rating: got[1], href: got[2] }
+        : { index, text: item.text, cells: [], rating: null, href: "" };
+    });
+  }
+
   /** Ticks a row's checkbox with a real click (scrolled into view first); true when it ends up ticked. */
   async tick(node: number): Promise<boolean> {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1849,6 +1974,8 @@ export class Tab {
         c: ["KeyC", 67],
         v: ["KeyV", 86],
         x: ["KeyX", 88],
+        // styleKeys: bold, italic and underline of the selected text in an editor
+        ...(accOn("styleKeys") ? { b: ["KeyB", 66], i: ["KeyI", 73], u: ["KeyU", 85] } : {}),
       };
       const mods: Record<ModName, { code: string; vk: number; bit: number }> = {
         Alt: { code: "AltLeft", vk: 18, bit: 1 },
@@ -1872,7 +1999,7 @@ export class Tab {
         throw new Error("Browser-global modifier combination is not allowed");
       const command = modifiers.includes("Control") || modifiers.includes("Meta");
       if (
-        (["a", "y", "z", "c", "v", "x"].includes(spec.key) && !command) ||
+        (["a", "y", "z", "c", "v", "x", "b", "i", "u"].includes(spec.key) && !command) ||
         (command &&
           ![
             "a",
@@ -1881,6 +2008,7 @@ export class Tab {
             "c",
             "v",
             "x",
+            ...(accOn("styleKeys") ? ["b", "i", "u"] : []),
             "ArrowLeft",
             "ArrowRight",
             "ArrowUp",

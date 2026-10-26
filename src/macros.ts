@@ -19,13 +19,27 @@ import {
   lastStamp,
   type RowStamp,
 } from "./cheap-collection.ts";
+import {
+  aggregate,
+  collectionCount,
+  fieldNames,
+  resolveField,
+  rowFilter,
+  specConflict,
+  typeRecord,
+} from "./records.ts";
+import { Handover, ReadCap, Stopped } from "./errors.ts";
+import { RunLimit } from "./run-budget.ts";
 import type { Tab } from "./cdp.ts";
 import type {
+  AggregateFilter,
+  AggregateSpec,
   FieldValue,
   BatchItem,
   BatchRecord,
   CollectJson,
   CollectionMemory,
+  ListRecord,
   LocatedEl,
   Looked,
   MacroHost,
@@ -1623,6 +1637,52 @@ const LITE_ENUM_MATCHES = 40;
 const LITE_ENUM_FACT = 300;
 const LITE_UNSETTLED = 3; // scanOn: rows nothing settled that an ordered scan passes before it stops at one
 const LITE_DATED_FACT = 1200; // noteResolve: a dated record's own text kept with its match (an order's items)
+// listCoverage: a list that states its size ("73 records found") is read on, past pages that show no match, until the
+// rows read reach that size, up to this many pages
+const LITE_COVER_PAGES = 40;
+// listCoverage: the rows Drex's row screen found no match in are screened once by the LLM, at most this many, each cut
+// to this many characters (a request's evidence is capped at 13,000 bytes)
+const SCREEN_ROWS = 40;
+const SCREEN_ROW = 200;
+// aggregate: the ops and orders the spec's schema allows, and a filter's comparisons
+const SPEC_OPS: readonly unknown[] = ["count", "sum", "avg", "min", "max", "list", "top", "argmax", "argmin"];
+const SPEC_ORDERS: readonly unknown[] = ["asc", "desc", "none"];
+const FILTER_OPS: readonly unknown[] = ["eq", "neq", "contains", "gte", "lte", "between"];
+
+/** aggregate: the LLM's spec as the host computes it; null when it asks for no computation. Not every provider holds
+ * the model to the schema, so a reply off it throws: an op and an order of the schema's, text for field, group_by and
+ * output, a number for limit, lists for filters and semantic_constraints, and each filter's field, op and value as text
+ * (a number value is read as its digits). */
+function specFrom(reply: unknown): AggregateSpec | null {
+  const s = (reply ?? {}) as Partial<Record<keyof AggregateSpec, unknown>>;
+  if (s.op === "none") return null;
+  const filters = Array.isArray(s.filters)
+    ? (s.filters as unknown[]).map((f) => {
+        const { field, op, value } = (f ?? {}) as Partial<Record<keyof AggregateFilter, unknown>>;
+        return { field, op, value: typeof value === "number" ? String(value) : value };
+      })
+    : null;
+  if (
+    !SPEC_OPS.includes(s.op) ||
+    !SPEC_ORDERS.includes(s.order) ||
+    typeof s.field !== "string" ||
+    typeof s.group_by !== "string" ||
+    typeof s.output !== "string" ||
+    typeof s.limit !== "number" ||
+    !Array.isArray(s.semantic_constraints) ||
+    !filters?.every((f) => typeof f.field === "string" && FILTER_OPS.includes(f.op) && typeof f.value === "string")
+  )
+    throw new Error("The aggregation spec doesn't fit its schema");
+  return { ...(s as AggregateSpec), filters: filters as AggregateFilter[] };
+}
+/** The errors no step's own work swallows: the run stopped or out of its budget, a hand-over to the person, and the
+ * collect step's read cap (collectCapped ends the step on it). */
+const runControl = (e: unknown): boolean =>
+  e instanceof Stopped ||
+  e instanceof Handover ||
+  e instanceof ReadCap ||
+  e instanceof RunLimit ||
+  (e as { code?: unknown } | null)?.code === "run_budget_exhausted";
 
 /** A record page's own text, from where it names its row's identifier (an order's number on the order's page) rather
  * than from the site's menus at the top of the page. */
@@ -1637,7 +1697,11 @@ export function recordFrom(text: string, rowText: string, max: number): string {
  * screens its detail page; a list sorted the requested way (proven by its rows' dates, or by Drex reading its sort
  * controls) stops at its first qualifying row, otherwise up to LITE_PAGES pages are read. The note keeps the matching
  * rows and records for the final answer to choose from. Only the task's collection contract (one short LLM call, kept
- * for the run) is asked of the LLM. A page with no list rows goes to the ordinary collect. */
+ * for the run) is asked of the LLM. A page with no list rows goes to the ordinary collect.
+ * The aggregate switch types the rows as records (records.ts) and computes the count, total or top N the task asks for
+ * over every row read, from one LLM spec; the listCoverage switch reads the size the list states, sets its per-page
+ * select to the largest size, pages on past the early stops until the rows read reach that size, and has the LLM
+ * screen the rows once when Drex's row screen finds no match. */
 export async function collectLite(this: MacroHost, step: Step): Promise<Outcome> {
   const name = step.save_as || `collection${this.index + 1}`;
   let held = this.collectionTaskContract;
@@ -1658,6 +1722,14 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
     contract.intent === "objective_optimum" &&
     contract.ranked_count === 1 &&
     ["asc", "desc"].includes(String(contract.sort_direction));
+  // topNStop: a request for the N top items of a list ("the 5 most recent orders") is read off the list proven in that
+  // order: its first N qualifying rows and only their details, without the aggregate switch's computation
+  const rankedN =
+    accOn("topNStop") &&
+    contract.intent === "objective_optimum" &&
+    Number(contract.ranked_count) > 1 &&
+    Number(contract.ranked_count) <= 10 &&
+    ["asc", "desc"].includes(String(contract.sort_direction));
   const byDate = dateRanking(contract);
   const matches: { source: string; row: string; record?: string }[] = [];
   let checked = 0,
@@ -1676,16 +1748,71 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
   const passUnsettled = () => accOn("scanOn") && ++unsettled <= LITE_UNSETTLED;
   const seenPages = new Set<string>();
   const enumerate = contract.intent === "enumerate_all";
-  for (let page = 0; page < (enumerate ? LITE_ENUM_PAGES : LITE_PAGES); page++) {
+  // aggregate and listCoverage: the rows read as records, every one and those that became matches; listCoverage: the
+  // rows checked, with their sources and records, for the LLM's re-screen when Drex's row screen finds no match
+  const inCode = accOn("aggregate") || accOn("listCoverage");
+  const allRecords: ListRecord[] = [];
+  const matchedRecords: ListRecord[] = [];
+  const kept: { row: number; text: string }[] = [];
+  const keptSources: string[] = [];
+  const keptRecords: (ListRecord | undefined)[] = [];
+  let rowsRead = 0,
+    countShown: number | null = null,
+    spec: AggregateSpec | null = null,
+    resized = false,
+    covered = false, // listCoverage: the rows read reached the size the list states
+    structuredOnly = false; // aggregate: the spec's filters decide each row's verdict, no Drex row screen
+  // aggregate: whether a row passes the spec's filters (with structuredOnly, its verdict)
+  let passes: (r: ListRecord) => boolean = () => true;
+  let filtered = false; // aggregate: the spec has filters, and each resolves to a field of the list
+  // aggregate: a spec that computes a value over the rows (all but a top N)
+  const computing = (): boolean => spec !== null && spec.op !== "top";
+  // aggregate: a spec that needs every row of the list (set with the spec): a count, or any op by a group the list
+  // shows (the customer with the most cancellations); a total, mean, extreme or list for a single ranked item keeps to
+  // that item
+  let wholeList = false;
+  // a single top item's first qualifying row ends the scan, unless the spec needs every row: then the list is read
+  // whole, as an enumeration is, and its ranking is left to a later step or the final read
+  const firstOnly = (): boolean => optimum && !wholeList;
+  // a list of dated records sends its rows to their details (an order's items are on its own page); read for a spec
+  // that needs every row it is judged in place, as any other list is, and no detail opens: a value that needs a field
+  // only a detail shows is then missing, never computed from part of the list
+  const detailed = (): boolean => byDate && !wholeList;
+  // aggregate: a total over a field the list doesn't show, for a ranked request, read as its top N: the op and field
+  // it was asked as
+  let became: Pick<AggregateSpec, "op" | "field"> | null = null;
+  let unconfirmed = 0, // rows a screen left open whose detail wasn't read
+    byFilters = 0; // aggregate: rows left open that way which the spec's filters judged instead
+  // listCoverage: a list that states its size, read for every match or for a computation, has the early stops lifted
+  // until the rows read reach that size; reaching it ends only that, never the reading (a count read low, a product
+  // card's "2 Reviews", would cut a reading short of main's)
+  const covering = (): boolean =>
+    accOn("listCoverage") && countShown !== null && !covered && (enumerate || spec !== null);
+  // aggregate and listCoverage: a call the switches add that fails (a model reply off its schema, a page gone) costs
+  // only what it adds: an event says where, and the list is read and its note written as without it; what ends the
+  // step or the run goes on up
+  const guarded = async <T>(where: string, call: () => Promise<T> | T): Promise<T | undefined> => {
+    try {
+      return await call();
+    } catch (e) {
+      if (runControl(e)) throw e;
+      this.check(); // a call that failed because the run was stopped (its debugger gone) ends the step as a stop
+      this.log("aggregate_error", { where, message: e instanceof Error ? e.message : String(e) });
+      return undefined;
+    }
+  };
+  for (let page = 0; page < (covering() ? LITE_COVER_PAGES : enumerate ? LITE_ENUM_PAGES : LITE_PAGES); page++) {
     this.check();
     const tab = await this.currentTab();
     const scr = await this.look(tab);
     const info = await tab.info(50000);
-    if (seenPages.has(info.url + "\n" + info.text.slice(0, 2000))) break;
-    seenPages.add(info.url + "\n" + info.text.slice(0, 2000));
+    const seen = info.url + "\n" + info.text.slice(0, 2000);
+    if (seenPages.has(seen)) break;
+    seenPages.add(seen);
     const origin = new URL(info.url).origin;
     const rows: Row[] = [];
-    for (const item of await tab.items()) {
+    const items = await tab.items();
+    for (const item of items) {
       const links = shownLinks(
         scr,
         (((await tab.on(item.node, LINKS).catch(() => [])) as PageLink[] | null) ?? []).filter((l) =>
@@ -1695,6 +1822,33 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
       rows.push({ text: item.text, links });
     }
     const itemRows = rows.length;
+    // listCoverage: the size the list states ("Items 1-12 of 36") is read off its first page; and once, its per-page
+    // select is set to the largest size and the first page read again
+    if (page === 0 && itemRows && accOn("listCoverage")) {
+      countShown = collectionCount(info.text);
+      if (countShown !== null) this.log("list_count", { count: countShown, rows: itemRows });
+      const sizer = resized ? null : L.pageSizeControl(scr.els);
+      resized = true;
+      // a single select is set by its option's index (Tab.selectValues sets only a multiple select)
+      const largest = sizer
+        ? (scr.els.find((e) => e.node === sizer.node)?.options ?? []).findIndex(
+            (option) => Number.parseInt(option, 10) === sizer.max,
+          )
+        : -1;
+      if (sizer && largest >= 0) {
+        const set = await guarded("selectOption", async () => {
+          await tab.selectOption(sizer.node, largest);
+          await tab.settle();
+          return true;
+        });
+        if (set) {
+          this.log("page_size", { from: sizer.current, to: sizer.max });
+          seenPages.delete(seen);
+          page--;
+          continue;
+        }
+      }
+    }
     const controls = await detailControls(tab, scr, info.url);
     const flatText = (t: string) => t.replace(/\s+/g, " ").trim().toLowerCase();
     for (const c of controls) {
@@ -1711,6 +1865,10 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
       }
       break;
     }
+    // aggregate and listCoverage: the page's rows as records, in the rows' order
+    const pageRecords = inCode ? (await tab.records(items)).map(typeRecord) : [];
+    allRecords.push(...pageRecords);
+    if (inCode) rowsRead += itemRows;
     pages++;
     // the list must be the one the task is about (a plan can start the collection on the home page): once, the
     // collection goes to it first
@@ -1737,8 +1895,56 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
         why: `The page is not the list the task is about (${String(contract.scope)})`,
       };
     }
+    // aggregate: once, from the list's field names and three of its rows, the LLM writes what the task computes over
+    // the rows; conditions no field decides stay with Drex's row screen, and with none the spec's filters decide alone
+    // (a list of dated records still has its rows' details read)
+    if (page === 0 && accOn("aggregate") && L.wantsAggregate(contract, this.task) && pageRecords.length) {
+      const ask = async () => {
+        const reply = await this.llmCall("collect", () =>
+          this.llm.aggregationSpec({
+            task: this.task,
+            contract,
+            headers: fieldNames(pageRecords),
+            sample: pageRecords.slice(0, 3).map((r) => r.text.slice(0, 200)),
+          }),
+        );
+        return specFrom(reply.json);
+      };
+      spec = (await guarded("aggregationSpec", ask)) ?? null;
+      // a total the task leaves a part out of is not computed from a total field: the reading opens the records instead
+      const conflict = spec ? specConflict(this.task, spec) : "";
+      if (spec && conflict) {
+        this.log("aggregate_error", { where: "aggregationSpec", message: `refused: ${conflict}` });
+        spec = null;
+      }
+      if (spec) {
+        // a total, mean, least or most over a field the list doesn't show, for a ranked request (the items sold in the
+        // 4 most recent orders, over an order grid with no items column), is read as its top N: those rows and their
+        // details are what the final read computes from
+        if (
+          ["sum", "avg", "min", "max"].includes(spec.op) &&
+          (!spec.field || resolveField(spec.field, pageRecords) === null) &&
+          (spec.limit > 0 || Number(contract.ranked_count) > 1)
+        ) {
+          became = { op: spec.op, field: spec.field };
+          const limit = spec.limit || Number(contract.ranked_count);
+          spec = { ...spec, op: "top", limit, output: spec.output || "text" };
+        }
+        wholeList = spec.op === "count" || (!!spec.group_by && resolveField(spec.group_by, pageRecords) !== null);
+        this.log("aggregate_spec", { spec, ...(became ? { became: "top", from: became.op } : {}) });
+        // the spec's filters as a test of one row: with no condition left for the rows' words they decide each row in
+        // code (structuredOnly); a filter no field of the list resolves leaves the rows to Drex's screen
+        const filter = rowFilter(pageRecords, spec);
+        filtered = filter !== null && spec.filters.length > 0;
+        structuredOnly = filter !== null && spec.semantic_constraints.length === 0 && !detailed();
+        if (filter) passes = filter;
+      }
+    }
+    // aggregate: a top N is read off a list proven in the requested order too, its first N rows and only their details;
+    // a list not proven so is read as before, and never sorted for it
+    const topN = spec?.op === "top" && spec.limit > 0 && ["asc", "desc"].includes(String(contract.sort_direction));
     // the order: a list of dated records proves it by its rows' dates; another ranking by Drex reading the sort
-    if (page === 0 && optimum) {
+    if (page === 0 && (optimum || topN || rankedN)) {
       ordered = byDate
         ? !laterPage(info.url) &&
           !listNarrowed([...scr.els, ...(scr.off ?? [])]) &&
@@ -1746,7 +1952,7 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
         : !laterPage(info.url) &&
           !orderContradicted(rows, String(contract.objective_field), String(contract.sort_direction)) &&
           (await drexSorted(this, contract, info, scopeControls([...scr.els, ...(scr.off ?? [])])));
-      if (!ordered && !byDate && (this.collectionPreparationAttempts ?? 0) < 3) {
+      if (firstOnly() && !ordered && !byDate && (this.collectionPreparationAttempts ?? 0) < 3) {
         // one try at sorting the list the requested way, then the collection runs again on the sorted list
         this.collectionPreparationAttempts = (this.collectionPreparationAttempts ?? 0) + 1;
         const how = contract.sort_direction === "asc" ? "lowest" : "highest";
@@ -1769,6 +1975,9 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
       }
       this.log("collection_lite", { ordered, page: info.url });
     }
+    // aggregate: a top N read for a total over a field the list doesn't show takes the list's own order once it is
+    // proven (no field the list shows ranks it)
+    if (page === 0 && became !== null && ordered && spec) spec = { ...spec, order: "none" };
     if (
       ordered &&
       byDate &&
@@ -1777,22 +1986,45 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
     )
       ordered = false;
     if (byDate) lastDate = lastStamp(rows.slice(0, itemRows), lastDate);
-    // a list of dated records shows no item in its rows: each goes to its detail
-    const verdicts = byDate
+    // a list of dated records shows no item in its rows: each goes to its detail (detailed); aggregate: with no
+    // condition left for the rows' words, the spec's filters decide each row in code. Only a single top item's screen
+    // ends at the first qualifying row (a top N, or a spec computed over every row, reads them all)
+    const verdicts = detailed()
       ? rows.map((_, i) => ({ row: i, verdict: "needs_detail" as const, quote: "" }))
-      : ((await drexRowVerdicts(this, contract, rows, ordered)) ?? []);
+      : structuredOnly
+        ? rows.map((_, i) => {
+            const record = pageRecords[i];
+            const verdict = record && passes(record) ? ("qualifies" as const) : ("fails" as const);
+            return { row: i, verdict, quote: "" };
+          })
+        : ((await drexRowVerdicts(this, contract, rows, ordered && firstOnly())) ?? []);
+    // aggregate: the top N of a list proven in its order are its first N qualifying rows: no row after them is judged
+    // (a single top item ends the scan at its first qualifying row instead, past rows nothing settled)
+    const top =
+      spec?.op === "top" && ordered && !optimum
+        ? spec.limit
+        : rankedN && ordered && !computing()
+          ? Number(contract.ranked_count)
+          : 0;
     for (const v of verdicts) {
       const row = rows[v.row];
-      if (!row) break;
+      if (!row || (top > 0 && matches.length >= top)) break;
       checked++;
+      const source = [...row.links].sort((a, b) => b.text.length - a.text.length)[0]?.href ?? info.url;
+      const typed = pageRecords[v.row]; // aggregate: the row's record, kept with it when it becomes a match
+      if (accOn("listCoverage") && kept.length < SCREEN_ROWS) {
+        kept.push({ row: kept.length, text: row.text.slice(0, SCREEN_ROW) });
+        keptSources.push(source);
+        keptRecords.push(typed);
+      }
       if (v.verdict === "fails") {
         ruledOut++;
         continue;
       }
-      const source = [...row.links].sort((a, b) => b.text.length - a.text.length)[0]?.href ?? info.url;
       if (v.verdict === "qualifies") {
         matches.push({ source, row: row.text.slice(0, LITE_ROW) });
-        if (ordered && optimum) {
+        if (typed) matchedRecords.push(typed);
+        if (ordered && firstOnly()) {
           firstHit = true;
           settled = true;
           break;
@@ -1802,11 +2034,23 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
       // needs_detail: the record's own page settles it (Drex screens it), within the run's detail allowance
       const [best] = [...row.links].sort((a, b) => b.text.length - a.text.length);
       const rowControl = best ? undefined : controls.find((c) => c.source_id === row.controls?.[0]?.source_id);
-      if ((!best && !rowControl) || opened >= (byDate ? LITE_DATED : LITE_DETAILS)) {
+      // aggregate: a dated list read for a spec that needs every row opens no detail
+      if ((!best && !rowControl) || opened >= (byDate ? LITE_DATED : LITE_DETAILS) || (byDate && !detailed())) {
+        // aggregate: a spec that needs every row and has filters judges such a row by its filters: a condition no
+        // row's words settle is most often the computation's own ("the customer with the most cancellations")
+        if (wholeList && filtered && typed) {
+          byFilters++;
+          if (passes(typed)) {
+            matches.push({ source, row: row.text.slice(0, LITE_ROW) });
+            matchedRecords.push(typed);
+          } else ruledOut++;
+          continue;
+        }
+        unconfirmed++;
         matches.push({ source, row: `${row.text.slice(0, LITE_ROW)} (not confirmed: its detail wasn't read)` });
         // in a sorted list a row nothing settles ends the scan: the answer is it or a row after it, for the final
         // answer to judge
-        if (ordered && optimum && !passUnsettled()) {
+        if (ordered && firstOnly() && !passUnsettled()) {
           firstHit = true;
           break;
         }
@@ -1850,18 +2094,27 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
           : (decision === "match" ? "" : "(Drex not sure it matches) ") +
             record.replace(/\s+/g, " ").slice(0, LITE_FACT),
       });
-      if (ordered && optimum && (decision === "match" || (!byDate && !passUnsettled()))) {
+      if (typed) matchedRecords.push(typed);
+      if (ordered && firstOnly() && (decision === "match" || (!byDate && !passUnsettled()))) {
         firstHit = true;
         settled = decision === "match";
         break;
       }
     }
-    if (firstHit || (contract.intent === "choose_qualified" && matches.length)) {
+    // listCoverage: while the rows read are short of the size the list states, the early stops below don't apply;
+    // reaching that size ends only this, and main's stops apply from that page on
+    const rowsLeft = covering() && rowsRead < (countShown ?? 0);
+    if (covering() && !rowsLeft) covered = true;
+    // aggregate: a spec computed over every row (all but a top N) reads a list it would choose from as an enumeration
+    // while rows are left: its first match doesn't end the reading
+    const chosen =
+      contract.intent === "choose_qualified" && matches.length > 0 && !(rowsLeft && spec !== null && spec.op !== "top");
+    if ((top > 0 && matches.length >= top) || firstHit || chosen) {
       complete = true;
       break;
     }
-    if (!enumerate && !ordered && !matches.length && pages >= LITE_EMPTY_PAGES) break;
-    if (!enumerate && matches.length >= LITE_MATCHES * 2) break;
+    if (!rowsLeft && !enumerate && !ordered && !matches.length && pages >= LITE_EMPTY_PAGES) break;
+    if (!rowsLeft && !enumerate && matches.length >= LITE_MATCHES * 2) break;
     // the next page: its Next control, made as a macro move
     const fresh = await this.look(tab);
     const { all, options } = await navigationOptions(tab, fresh);
@@ -1873,16 +2126,104 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
     });
     const act = next ? all.acts[next] : undefined;
     if (!act) {
-      complete = true;
+      // listCoverage: a list that ends short of the size it states was not read whole
+      complete = !rowsLeft;
       break;
     }
     const moved = await this.act(tab, act, null, fresh, [], "macro", 1, "next page of the list", { step });
     if (moved?.replan || moved?.fail) return moved;
     if (moved?.blocked || moved?.dispatched === false) break;
   }
+  // listCoverage: Drex's row screen, or the spec's filters (aggregate), found no match in a list with rows and
+  // conditions: the LLM screens the rows checked once, by meaning, before the step concludes there is none (a filter
+  // worded unlike the cells, the task's "cancelled" for the list's "Canceled", passes no row). Not every provider holds
+  // the model to the schema: a row number it wasn't shown counts for nothing, and a row it names twice counts once
+  let refiltered = false; // aggregate: the re-screen chose the rows in place of the spec's filters
+  if (accOn("listCoverage") && !matches.length && kept.length && !detailed() && contract.constraints?.length) {
+    const qualifying = await guarded("screenRows", async () => {
+      const reread = await this.llmCall("collect", () =>
+        this.llm.screenRows({ task: this.task, contract, rows: kept }),
+      );
+      const found = new Set<number>();
+      for (const v of reread.json.rows)
+        if (v.verdict === "qualifies" && Number.isInteger(v.row) && v.row >= 0 && v.row < kept.length) found.add(v.row);
+      return [...found];
+    });
+    if (qualifying) {
+      for (const at of qualifying) {
+        const shown = kept[at],
+          source = keptSources[at];
+        if (!shown || source === undefined) continue;
+        matches.push({ source, row: shown.text });
+        const typed = keptRecords[at];
+        if (typed) matchedRecords.push(typed);
+      }
+      this.log("screen_reread", {
+        rows: kept.length,
+        matches: qualifying.length,
+        ...(structuredOnly ? { fallback: true } : {}),
+      });
+      refiltered = structuredOnly && matches.length > 0;
+    }
+  }
+  // aggregate: what the spec asks for, computed over the records of the rows that became matches, or of every row read
+  // when its filters decided each row; rows the re-screen chose in their place meet the conditions by meaning, so the
+  // computation runs over them without the filters, and says so
+  const asked = spec; // the spec the step ends with
+  const result =
+    asked &&
+    (await guarded("aggregate", () =>
+      refiltered
+        ? aggregate(matchedRecords, { ...asked, filters: [] })
+        : aggregate(structuredOnly ? allRecords : matchedRecords, asked),
+    ));
+  // aggregate: how the rows were chosen when not by the spec alone, and a value the rows read can't give, missing with
+  // its reason: a top N read for a total over a field the list doesn't show (the final read computes it from those
+  // records), or a number that needed rows whose detail wasn't read (a list keeps its confirmed values, with the note)
+  const caveats = refiltered ? ["filters applied by the re-screen"] : [];
+  if (byFilters)
+    caveats.push(
+      byFilters === 1
+        ? "1 row the screen couldn't settle was judged by the spec's filters"
+        : `${byFilters} rows the screen couldn't settle were judged by the spec's filters`,
+    );
+  let missing = false;
+  if (asked && became) {
+    caveats.push(`${became.op} over ${became.field || "the items"}: read the ${asked.limit} records`);
+    missing = true;
+  } else if (asked && computing() && unconfirmed > 0) {
+    caveats.push(
+      unconfirmed === 1
+        ? "1 row needs its detail and was not read"
+        : `${unconfirmed} rows need their detail and were not read`,
+    );
+    missing = asked.op !== "list";
+  }
+  const computed = asked &&
+    result && {
+      spec: {
+        op: asked.op,
+        field: asked.field,
+        filters: asked.filters,
+        group_by: asked.group_by,
+        output: asked.output,
+        order: asked.order,
+        limit: asked.limit,
+      },
+      ...result,
+      ...(missing ? { value: null } : {}),
+      unresolved: [...result.unresolved, ...caveats],
+    };
+  if (computed)
+    this.log("aggregate", {
+      op: computed.op,
+      value: computed.value,
+      rows_total: computed.rows_total,
+      rows_used: computed.rows_used,
+    });
   // scanOn: an ordered scan that passed unsettled rows and found no confirmed one answers with the first of them, as it
   // did before
-  const passed = accOn("scanOn") && ordered && optimum && unsettled > 0;
+  const passed = accOn("scanOn") && ordered && firstOnly() && unsettled > 0;
   if (passed && !firstHit && matches.length) firstHit = true;
   const note = {
     read_by: "Drex judged each row against the task's conditions and screened the records it opened",
@@ -1890,14 +2231,21 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
     order: ordered
       ? passed
         ? `the list runs by ${String(contract.objective_field)} ${String(contract.sort_direction)}; the matches are in the list's order: the first one that meets every condition is the answer (a match its detail didn't confirm counts only if its own text shows every condition met)`
-        : `the list runs by ${String(contract.objective_field)} ${String(contract.sort_direction)}; the first match is the answer`
+        : firstOnly()
+          ? `the list runs by ${String(contract.objective_field)} ${String(contract.sort_direction)}; the first match is the answer`
+          : spec?.op === "top"
+            ? // aggregate: a top N read off the list's first rows
+              `the list runs by ${String(contract.objective_field)} ${String(contract.sort_direction)}; the matches are its first rows, in that order`
+            : // aggregate: a spec computed over every row read the list whole; its ranking is the final read's
+              `the list runs by ${String(contract.objective_field)} ${String(contract.sort_direction)}; the matches are in that order`
       : "not proven sorted: compare the matches",
     ...(firstHit ? { answer: passed && !settled ? matches[0] : matches.at(-1) } : {}),
     matches: passed
       ? matches.slice(-LITE_MATCHES)
       : firstHit
         ? matches.slice(-1)
-        : enumerate
+        : // aggregate: a step that computes over every row keeps an enumeration's matches, for a later step to read
+          enumerate || computing()
           ? matches
               .slice(0, LITE_ENUM_MATCHES)
               .map((m) => ({ ...m, record: (m.record ?? "").slice(0, LITE_ENUM_FACT) }))
@@ -1906,8 +2254,22 @@ export async function collectLite(this: MacroHost, step: Step): Promise<Outcome>
     ruled_out: ruledOut,
     pages_read: pages,
     whole_list_read: complete,
+    // listCoverage: the rows read, and the size the list states
+    ...(accOn("listCoverage")
+      ? { rows_read: rowsRead, ...(countShown !== null ? { count_shown: countShown } : {}) }
+      : {}),
+    ...(computed ? { computed } : {}),
   };
   this.notes[name] = JSON.stringify(note);
-  this.log("collection_done", { lite: true, matches: matches.length, checked, ruledOut, pages, firstHit, complete });
+  this.log("collection_done", {
+    lite: true,
+    matches: matches.length,
+    checked,
+    ruledOut,
+    pages,
+    firstHit,
+    complete,
+    ...(inCode ? { rowsRead, countShown, computed: Boolean(computed) } : {}),
+  });
   return {};
 }

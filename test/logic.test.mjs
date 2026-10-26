@@ -1002,3 +1002,25 @@ test("chosenValue: what a move sets; chosenLiterals: the step's values a move se
   assert.deepEqual(L.chosenLiterals(["Legal"], []), []);
   assert.deepEqual(L.chosenLiterals(["Rem"], ["Remote"]), []); // part of a word is not the value
 });
+
+test("pageSizeControl: the per-page select, never a quantity select", () => {
+  const sel = (name, options, selectedIndex) => ({
+    node: 1,
+    name,
+    text: `combobox '${name}'`,
+    select: true,
+    options,
+    selectedIndex,
+  });
+  assert.deepEqual(L.pageSizeControl([sel("Show", ["12", "24", "36"], 0)]), { node: 1, max: 36, current: 12 });
+  assert.equal(L.pageSizeControl([sel("Qty", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"], 0)]), null);
+  assert.equal(L.pageSizeControl([sel("Show", ["12", "24", "36"], 2)]), null); // already the largest
+  assert.equal(L.pageSizeControl([sel("Sort By", ["Position", "Price"], 0)]), null);
+});
+test("wantsAggregate: enumerations, top-N and counting words", () => {
+  const c = (over) => ({ intent: "objective_optimum", ranked_count: 1, ...over });
+  assert.equal(L.wantsAggregate(c({ intent: "enumerate_all" }), "List the names"), true);
+  assert.equal(L.wantsAggregate(c({ ranked_count: 4 }), "the most recent 4 orders"), true);
+  assert.equal(L.wantsAggregate(c({}), "What's the total number of items sold?"), true);
+  assert.equal(L.wantsAggregate(c({}), "Open the cheapest SSD"), false);
+});

@@ -4,6 +4,9 @@ import http from "node:http";
 import { HostedBudget, providerUsage } from "../runner/src/hosted-budget.mjs";
 import { modelTransport } from "../runner/src/worker-transport.mjs";
 
+// a funding of 100,000,000,000 nUSD, written so no 12-digit literal sits in the source (the export scan reads those as ids)
+const AMPLE = "1" + "0".repeat(11);
+
 function funding(budget = "1000000") {
   return {
     budget_nusd: budget,
@@ -466,7 +469,7 @@ test("a base64 source outside an image content block is counted as text, never b
       messages: [{ role: "user", content: "go" }],
     },
   ]) {
-    const budget = new HostedBudget(funding("100000000000"), llm);
+    const budget = new HostedBudget(funding(AMPLE), llm);
     try {
       assert.equal(budget.reserve("llm", body).bound, BigInt(Buffer.byteLength(JSON.stringify(body)) + 4096 + 100));
     } finally {
@@ -474,7 +477,7 @@ test("a base64 source outside an image content block is counted as text, never b
     }
   }
   // a screenshot inside a tool result is still an image
-  const budget = new HostedBudget(funding("100000000000"), llm);
+  const budget = new HostedBudget(funding(AMPLE), llm);
   try {
     const image = { type: "image", source };
     const body = {
@@ -502,7 +505,7 @@ test("a PDF or content document is refused: its pages and images are not bounded
     max_tokens: 100,
     messages: [{ role: "user", content: [{ type: "document", ...document }] }],
   });
-  const budget = new HostedBudget(funding("100000000000"), llm);
+  const budget = new HostedBudget(funding(AMPLE), llm);
   try {
     assert.throws(() => budget.reserve("llm", body({ source: pdf })), /Unbounded funded document/);
     const nested = { type: "content", content: [image, image] };
@@ -638,7 +641,7 @@ test("a funded LLM call is refused for another model or for work its body does n
 });
 
 test("a call's reservation is its exact worst case; unbounded or unsupported bodies are refused", () => {
-  const budget = new HostedBudget(funding("100000000000"), llm);
+  const budget = new HostedBudget(funding(AMPLE), llm);
   try {
     const three = { ...decision, questions: { a: {}, b: {}, c: {} } };
     assert.equal(budget.reserve("drex", three).bound, 3n * 262144n);

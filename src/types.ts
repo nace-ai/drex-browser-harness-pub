@@ -330,6 +330,64 @@ export interface PageItem {
   checkbox: boolean;
   checked: boolean;
 }
+/** One list row as the page script reads it (cdp.ts RECORD_FN): header-to-cell pairs, its rating text, its best link. */
+export interface RawRecord {
+  index: number;
+  text: string;
+  cells: [string, string][];
+  rating: string | null;
+  href: string;
+}
+/** A row typed on the host: fields by lower-cased header, each cell's first number, stars from the rating; virtual
+ * fields text, amount, date and stars are always present when the row has them. */
+export interface ListRecord {
+  index: number;
+  text: string;
+  href: string;
+  fields: Record<string, string>;
+  numbers: Record<string, number>;
+  stars: number | null;
+}
+/** What an aggregation computes over a list's records (records.ts aggregate); none asks for nothing. */
+export type AggregateOp = "none" | "count" | "sum" | "avg" | "min" | "max" | "list" | "top" | "argmax" | "argmin";
+/** How a filter compares a record's field with its value: by date, by number, or as text with case aside. */
+export type FilterOp = "eq" | "neq" | "contains" | "gte" | "lte" | "between";
+/** One exact condition on a record's field; a between value is written from..to. */
+export interface AggregateFilter {
+  field: string;
+  op: FilterOp;
+  value: string;
+}
+/** The LLM's aggregation spec for a collect step; field, group_by and output name the records' fields, "" when none
+ * applies. */
+export interface AggregateSpec {
+  op: AggregateOp;
+  field: string;
+  filters: AggregateFilter[];
+  group_by: string;
+  output: string;
+  order: "asc" | "desc" | "none";
+  limit: number;
+  /** conditions no field decides (a complaint about quality): the row screen judges them, not the filters */
+  semantic_constraints: string[];
+}
+/** An aggregation computed in code over the rows read: a value that can't be computed is null, never 0, with the
+ * reason in unresolved; groups are the rows per key of a group_by, most first. */
+export interface AggregateResult {
+  op: AggregateOp;
+  value: number | string | string[] | null;
+  rows_total: number;
+  rows_used: number;
+  groups?: { key: string; value: number }[];
+  /** the rows a top, argmax or argmin chose (a group's own rows, latest first), with their links: a later step opens
+   * the entity from here instead of searching for it again */
+  selected?: { text: string; href: string; date?: string }[];
+  /** how many rows or groups share the best value: every one is in value, never only the first */
+  ties?: number;
+  /** list values past the cap, left out of value */
+  more?: number;
+  unresolved: string[];
+}
 /** What the page shows besides its controls (Tab.notices). */
 export interface Notices {
   dialogs: string[];
@@ -829,7 +887,13 @@ export interface MacroHost extends CollectionAgent {
   index: number;
   /** A note may hold undefined: the agent stores the LLM's evidence as it came. */
   notes: Record<string, string | undefined>;
-  llm: CollectionAgent["llm"] & Pick<LLM, "collectionContract" | "collectionPreparation" | "collect" | "read" | "fill">;
+  /** The LLM requests the macros make; aggregationSpec and screenRows are collectLite's (the aggregate and listCoverage
+   * switches). */
+  llm: CollectionAgent["llm"] &
+    Pick<
+      LLM,
+      "collectionContract" | "collectionPreparation" | "collect" | "read" | "fill" | "aggregationSpec" | "screenRows"
+    >;
   runOptions?: RunOptions;
   runBudget?: RunBudget;
   trusted?: Set<string>;

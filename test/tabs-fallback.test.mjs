@@ -99,3 +99,93 @@ test("the agent opens only http(s) tabs, so chrome.tabs cannot bypass the worker
   }
   assert.deepEqual(created, []);
 });
+test("an open_url with no scheme (a path from the site map) opens on the page the agent's tab shows; non-web schemes are still refused", async () => {
+  const opened = [];
+  globalThis.chrome = {
+    tabs: {
+      create: async (opts) => (opts.url !== "about:blank" && opened.push(opts.url), { id: 51, ...opts }),
+      update: async (_id, opts) => (opened.push(opts.url), { id: 50, ...opts }),
+      get: async () => ({ id: 50, url: "http://shop.test/admin/dashboard/" }),
+    },
+  };
+  const a = new Agent({ drex: {}, llm: {}, emit() {} });
+  a.t0 = performance.now();
+  a.windowId = 7;
+  a.group = async () => {};
+  a.agentTabId = 50;
+  a.ownTab = true;
+  a.currentTab = async () => ({ settle: async () => {} });
+  // another tab of the user's, on a site the agent's page is not on
+  a.task = "Open the sales orders";
+  a.startTabs = [{ id: 10, url: "https://other.test/home" }];
+  // a plan step's path, opened as prepare() opens it (the step died here as a malformed URL)
+  await a.prepare({ use_tab: -1, open_url: "/admin/sales/order/" });
+  // an absolute URL is unchanged
+  await a.openOwnTab("https://other.test/x");
+  // a detail tab's address resolves the same way
+  await a.openDetailTab("/admin/customer/");
+  assert.deepEqual(opened, [
+    "http://shop.test/admin/sales/order/",
+    "https://other.test/x",
+    "http://shop.test/admin/customer/",
+  ]);
+  // a page to resolve on does not make a non-web scheme, prose, or another site's scheme-relative address an address
+  for (const url of [
+    "file:///etc/hosts",
+    "chrome://settings",
+    "data:text/html,x",
+    "javascript:alert(1)",
+    "not a url",
+    "//evil.test/x?y=1",
+    "/\\evil.test/x",
+    "\\\\evil.test\\x",
+    "//other.test/x", // refused on the page the path was resolved on, so not retried on the user's other tab
+  ]) {
+    await assert.rejects(a.openOwnTab(url), /Refusing to open/);
+    await assert.rejects(a.openDetailTab(url), /Refusing to open/);
+  }
+  // an open_url that is not text (the LLM's JSON) is refused as malformed, as it always was
+  await assert.rejects(a.openOwnTab(5), /Refusing to open a malformed URL/);
+  await assert.rejects(a.openDetailTab(5), /Refusing to open a malformed URL/);
+  assert.equal(opened.length, 3);
+});
+test("with no page to resolve on, a path resolves on the first address in the task, else on the user's first tab; with neither it is refused", async () => {
+  const opened = [];
+  globalThis.chrome = {
+    tabs: {
+      create: async (opts) => (opts.url !== "about:blank" && opened.push(opts.url), { id: 60, ...opts }),
+      update: async (_id, opts) => (opened.push(opts.url), { id: 60, ...opts }),
+      get: async (id) => {
+        if (id === 50) return { id: 50, url: "about:blank" }; // a tab the agent opened, not yet on its page
+        throw Error("No tab");
+      },
+    },
+  };
+  const agentWith = (task, startTabs) => {
+    const a = new Agent({ drex: {}, llm: {}, emit() {} });
+    a.t0 = performance.now();
+    a.windowId = 7;
+    a.group = async () => {};
+    a.task = task;
+    a.startTabs = startTabs;
+    return a;
+  };
+  const tabs = [{ id: 10, url: "http://start.test/home" }];
+  const named = "Go to http://shop.test/admin and open the orders";
+  // no agent tab yet: the address in the task, or else the user's first tab
+  await agentWith(named, tabs).openOwnTab("/admin/sales/order/");
+  await agentWith("Open the orders", tabs).openOwnTab("/admin/sales/order/");
+  // an agent tab that shows no web page yet (about:blank) is no page to resolve on either
+  const blank = agentWith(named, tabs);
+  blank.agentTabId = 50;
+  blank.ownTab = true;
+  await blank.openOwnTab("/admin/sales/order/");
+  assert.deepEqual(opened, [
+    "http://shop.test/admin/sales/order/",
+    "http://start.test/admin/sales/order/",
+    "http://shop.test/admin/sales/order/",
+  ]);
+  // neither: a path is no address, so it is refused as before
+  await assert.rejects(agentWith("Open the orders", []).openOwnTab("/admin/sales/order/"), /malformed URL/);
+  assert.equal(opened.length, 3);
+});
