@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Drex Browser Agent",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Give it any task in plain words. Drex Max does the clicking and typing; an LLM plans, reads and helps when Drex is unsure.",
   "action": {
     "default_title": "Open Drex"

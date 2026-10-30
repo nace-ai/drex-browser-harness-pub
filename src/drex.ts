@@ -3,11 +3,11 @@ import type { RunBudget } from "./run-budget.ts";
 import type { DrexAnswer, DrexReply, DrexBody, Questions, RequestUsage } from "./types.ts";
 // Drex Max client: one POST /v1/systemone per decision, with images. Production reads images since 2026-10-18
 // (checked: a blank page and an app screen get opposite answers, same as the test console).
-// Price: $0.06 per million input tokens, output free.
+// Price: $0.03 per million input tokens, output free (Drex Max 1.1's list price since 2026-10-28; it was $0.06).
 
 export const DREX_URL = "https://console.nace.ai/v1/systemone";
 export const DREX_MODEL = "drex-max";
-export const USD_PER_INPUT_TOKEN = 0.06e-6;
+export const USD_PER_INPUT_TOKEN = 0.03e-6;
 
 // Admission reserves the request's own size with a margin (text at ~3 characters a token, each image well above the
 // 2,000-3,000 tokens a screenshot costs), at most MAX_INPUT_TOKENS; the provider's usage then settles it. A request

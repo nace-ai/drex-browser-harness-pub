@@ -273,7 +273,7 @@ async function runTool(name, args) {
   throw new Error(`Unknown tool ${name}`);
 }
 
-const server = new Server({ name: "drex", version: "0.1.5" }, { capabilities: { tools: {} } });
+const server = new Server({ name: "drex", version: "0.1.6" }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {

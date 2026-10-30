@@ -102,39 +102,58 @@ gear icon). Each setting is described in [docs/extension-settings.md](docs/exten
 Chrome shows a "started debugging this browser" bar while the extension works: it drives tabs through Chrome's
 debugger. Close the bar, or press **Stop**, to end a run.
 
+### Loop mode (experimental)
+
+```bash
+DREX_MODE=loop npm run build   # the extension in Loop mode, into dist/
+```
+
+In Loop mode one LLM conversation holds the whole task. Each turn it reads the page (its text and controls, a
+screenshot, or data it pulls out with JavaScript that is checked to only read, not sandboxed), then hands Drex Max one
+concrete step to carry out, or clicks a point or drags itself on a canvas or a shape, or answers. Drex Max makes the
+moves on the page's controls and hands a step back when it is unsure. It passes more tasks than the default mode on both
+[benchmarks](#benchmarks), clearly so on MiniWoB++.
+
+It is for evaluation only for now. Its page reads run LLM-written JavaScript in the page itself, with the page's cookies
+and network access; they are checked against a list of patterns, not sandboxed, so a hostile page could steer it into
+sending requests as you or sending page text elsewhere. Never use it signed in to an account you care about: use test
+sites and throwaway accounts. `npm run build:release` refuses it, so the local runner and the MCP server run the default
+mode.
+
 ## Benchmarks
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/benchmarks-dark.png">
-  <img alt="Pass rate and model cost of 1,000 tasks for Drex Browser Use and for coding agents that drive a browser, on WebArena-Verified and MiniWoB++; the numbers are in the table below." src="docs/assets/benchmarks-light.png">
+  <img alt="Pass rate, model cost of 1,000 tasks and mean time a task for Drex Browser Use in Loop mode and in its default mode, and for Claude Code, all on Claude Haiku 5.5, on 60 new WebArena-Verified tasks and on MiniWoB++; the numbers are in the table below." src="docs/assets/benchmarks-light.png">
 </picture>
 
-<sub>Pass rate, with the model cost of 1,000 tasks at API list prices and how many times Drex Browser Use's cost it is
-· 🟩 highest pass rate in the row · [methodology](docs/evals.md)</sub>
+<sub>Pass rate, with the model cost of 1,000 tasks at API list prices, how many times Loop mode's cost it is, and the
+mean time a task · 🟩 highest pass rate in the row · [methodology](docs/evals.md)</sub>
 
-| Benchmark | <mark>**Drex Browser Use**</mark><br><sub>Drex Max acts, Haiku 5.5 helps</sub> | <sub>Claude Code<br>Haiku 5.5</sub> | <sub>Codex<br>GPT-6 Luna</sub> | <sub>Claude Code<br>Sonnet 5.5</sub> | <sub>Codex<br>gpt-6.1-sol</sub> |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| **[WebArena-Verified](https://github.com/ServiceNow/webarena-verified)**<br><sub>shopping · 10 dev tasks</sub> | <mark>**73%**</mark><br><sub>$4.10 per 1,000 tasks</sub> | 85%<br><sub>$8.40 · 2.0×</sub> | 70%<br><sub>$5.40 · 1.3×</sub> | 🟩&nbsp;**90%**<br><sub>$74 · 18×</sub> | 80%<br><sub>~$88 · 21×</sub> |
-| **[MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus)**<br><sub>20 tasks</sub> | <mark>🟩&nbsp;**98%**</mark><br><sub>$1.30 per 1,000 tasks</sub> | 90%<br><sub>$3.80 · 2.9×</sub> | 80%<br><sub>$2.50 · 1.9×</sub> | 88%<br><sub>$24 · 19×</sub> | 🟩&nbsp;**98%**<br><sub>$28 · 21×</sub> |
+| Benchmark | <mark>**Drex Browser Use**</mark><br><sub>Loop mode (experimental)</sub> | <sub>Drex Browser Use<br>default mode</sub> | <sub>Claude Code<br>Claude Haiku 5.5</sub> |
+| --- | ---: | ---: | ---: |
+| **[WebArena-Verified](https://github.com/ServiceNow/webarena-verified)**<br><sub>60 new tasks · admin panel, forum · 2 tries</sub> | <mark>**64%**</mark><br><sub>$5.92 per 1,000 tasks · 53 s</sub> | 58%<br><sub>$7.49 · 1.3× · 70 s</sub> | 🟩&nbsp;**78%**<br><sub>$7.53 · 1.3× · 91 s</sub> |
+| **[MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus)**<br><sub>78 problems · 39 task types · 2 tries</sub> | <mark>**76%**</mark><br><sub>$2.58 per 1,000 tasks · 24 s</sub> | 60%<br><sub>$2.45 · 1.0× · 18 s</sub> | 🟩&nbsp;**84%**<br><sub>$4.35 · 1.7× · 42 s</sub> |
 
-**What 1,000 tasks cost.** 1,000 tasks like the WebArena development set cost $4.10 in model calls with Drex Browser
-Use, against $5.40 with Codex and GPT-6 Luna (1.3×), $8.40 with Claude Code and Haiku 5.5 (2.0×), $74 with Claude Code
-and Sonnet 5.5 (18×) and about $88 with Codex and gpt-6.1-sol (21×). On MiniWoB++'s short tasks it is $1.30, against
-$2.50 with Codex and GPT-6 Luna (1.9×), $3.80 with Claude Code and Haiku (2.9×), $24 with Claude Code and Sonnet 5.5
-(19×) and $28 with Codex and gpt-6.1-sol (21×). The saving comes from who takes the
-actions: Drex Max picks each move for a fraction of a cent, where a coding agent spends an LLM call on every step.
+All three agents use the same LLM, Claude Haiku 5.5, on the same tasks, pass rule, 300-second clock and machine.
 
-Drex Browser Use costs the least in every row. On MiniWoB++ it passes 98%, tied with Codex and gpt-6.1-sol at 1/21
-of its cost, and ahead of Claude Code with Haiku (90%) or Sonnet (88%) and Codex with GPT-6 Luna (80%). On
-WebArena-Verified its pass rate sits between Codex with GPT-6 Luna and Claude Code with Haiku; closing the gap to
-Claude Code is the work in progress.
+- **Loop mode passes more tasks than the default mode:** 76% against 60% on MiniWoB++, a clear gap, and 64% against
+  58% of the WebArena-Verified tasks, a gap within this sample's noise. In Loop mode the LLM holds the whole task and
+  decides each step, and Drex Max carries the steps out.
+- **Claude Code is more accurate:** 78% against Loop mode's 64% on WebArena-Verified, and 84% against 76% on MiniWoB++
+  (a gap within this sample's noise).
+- **Loop mode costs less and is faster:** on WebArena-Verified a task costs 21% less than with Claude Code and takes 53
+  seconds against 91; on MiniWoB++ it costs 41% less and takes 24 seconds against 42.
 
-<sub>Drex Browser Use 0.1.0 on 20 October 2026; the coding agents on 19 and 20 October 2026, with the same tasks,
-graders and machine. Cost is the model cost at API list prices, Drex Max and the LLM together for Drex Browser Use; the
-coding agents are priced from their token counts. On MiniWoB++ every agent had 2 tries per task. Failures on the
-WebArena tasks have been studied
-while developing the agent; further task sets are kept back for release numbers. Tries per task, times and how to
-rerun: [docs/evals.md](docs/evals.md#latest-results).</sub>
+Loop mode is experimental: build it with `DREX_MODE=loop npm run build` and use it on test sites only (see
+[the extension](#loop-mode-experimental)). The release build, the local runner and the MCP server run the default mode.
+
+<sub>Drex Browser Use 0.1.6 and Claude Code 2.1.289, measured on 30 October 2026. The 60 WebArena-Verified tasks had
+not been used by us before and were picked by a fixed seed before any attempt ran; they come from the admin panel and
+the forum, and 59 of them change something on the site. A MiniWoB++ problem passes when the page's own reward is
+exactly 1. Claude Code was given 600 seconds: its passes after 300 seconds count as failures and its cost and time are
+counted up to 300 seconds. Cost is the model cost at API list prices, Drex Max and the LLM together for Drex Browser
+Use. Intervals, per-site results, what was left out and earlier results: [docs/evals.md](docs/evals.md#latest-results).</sub>
 
 ## How it works
 
@@ -212,8 +231,10 @@ governed by their own terms. Details and links are in [docs/privacy.md](docs/pri
 
 ## Limitations and known issues
 
-- **Accuracy:** 73% on the WebArena-Verified shopping development tasks, where Claude Code with Haiku 5.5 gets 85%;
-  see [Benchmarks](#benchmarks). Check the answer of a run that matters.
+- **Accuracy:** on 60 new WebArena-Verified tasks the default mode passes 58% and the experimental Loop mode 64%, where
+  Claude Code with Haiku 5.5 passes 78%; see [Benchmarks](#benchmarks). Check the answer of a run that matters.
+- **Loop mode is for evaluation only** until its page reads are sandboxed: never use it on accounts you care about; see
+  [Loop mode](#loop-mode-experimental).
 - **Risk detection is English-only and name-based**, as described under [Safety](#safety).
 - **No npm package or Chrome Web Store listing yet:** build from source.
 - **Cloud runs are not available yet.**

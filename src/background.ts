@@ -6,6 +6,8 @@ import { Agent } from "./agent.ts";
 import { createBridge, lastWindow } from "./bridge.ts";
 import { Drex } from "./drex.ts";
 import { LLM } from "./llm.ts";
+import { LoopAgent } from "./loop/agent.ts";
+import { MODE, loopMode } from "./mode.ts";
 import { MODELS } from "./models.ts";
 import { newCode, validCode } from "./pairing.ts";
 import { limitsFrom } from "./run-budget.ts";
@@ -104,7 +106,9 @@ async function runTask(
   const { testPlan } = await chrome.storage.local.get<{ testPlan?: PlanLike }>("testPlan"); // set by e2e/run.py --plan; used once
   if (testPlan) await chrome.storage.local.remove("testPlan");
   const win = windowId ?? (await lastWindow()).id;
-  agent = new Agent({
+  // the loop build (DREX_MODE=loop) runs LoopAgent; the default build runs Agent, as before
+  const AgentClass = loopMode() ? LoopAgent : Agent;
+  agent = new AgentClass({
     drex: new Drex({ key: drexKey }),
     llm: new LLM({ keys: llmKeys(s), model: s.model }),
     emit: onEvent,
@@ -132,6 +136,7 @@ async function runTask(
       task,
       model: s.model,
       planning: isOn(s.planning),
+      mode: MODE,
       started: new Date().toISOString(),
       ...(await agent.run(task)),
     };
