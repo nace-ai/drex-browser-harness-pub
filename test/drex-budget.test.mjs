@@ -11,7 +11,8 @@ test("Drex rejects an unaffordable physical request before transport", async (t)
     return new Response(JSON.stringify({ answers: {}, usage: { input_tokens: 100 } }));
   });
   const drex = new Drex({ key: "fixture" });
-  drex.runBudget = new RunBudget({ maxCostUsd: 0.005 });
+  // a cap of 50,000 tokens' worth: the 200,000-character state reserves well over that at any price
+  drex.runBudget = new RunBudget({ maxCostUsd: 50_000 * USD_PER_INPUT_TOKEN });
   await assert.rejects(() => drex.ask("x".repeat(200000), questions), /reservation/);
   assert.equal(calls, 0);
 });

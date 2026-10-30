@@ -17,6 +17,20 @@ import { releaseProblems } from "./scripts/check-release.mjs";
 process.chdir(path.dirname(fileURLToPath(import.meta.url))); // the paths below are the repo's, whoever runs this
 const release = process.argv.includes("--release");
 const OUT = release ? "runner/extension" : "dist";
+// The run mode of src/mode.ts: empty builds the agent as it was, "loop" the LLM loop (src/loop/). Anything else is a typo,
+// and would silently build the default agent. Both checks come before the build touches anything, so a refused build
+// leaves dist/ as it was.
+const mode = process.env.DREX_MODE ?? "";
+if (mode !== "" && mode !== "loop") {
+  console.error(`DREX_MODE must be empty or "loop", not ${JSON.stringify(mode)}.`);
+  process.exit(1);
+}
+if (release && mode === "loop") {
+  console.error(
+    "DREX_MODE=loop can't go into a --release build: the loop mode is eval-only until its read sandbox lands.",
+  );
+  process.exit(1);
+}
 if (release) {
   const source = JSON.parse(fs.readFileSync("runner/protocol/source.json", "utf8"));
   const actual = createHash("sha256").update(fs.readFileSync("runner/protocol/run-spec.v2.json")).digest("hex");
@@ -78,6 +92,8 @@ await esbuild.build({
         : (process.env.DREX_ACC ??
             "noteResolve,answerGuard,answerRules,scanOn,confirmedChanges,revealEvidence,dragTo,datePicker,pickSuggestion,copyMove,sortCheck"),
     ),
+    // the run mode of src/mode.ts, checked above: DREX_MODE=loop builds the LLM loop (src/loop/), none the agent as before
+    __DREX_MODE__: JSON.stringify(mode),
   },
   logLevel: "warning",
 });
@@ -98,7 +114,7 @@ if (release) {
     fs.rmSync(OUT, { recursive: true, force: true });
     process.exit(1);
   }
-  console.log(`built ${OUT}/ (release: no keys, no local paths, no sourcemaps)`);
+  console.log(`built ${OUT}/ (release, mode: ${mode || "default"}: no keys, no local paths, no sourcemaps)`);
 } else {
   fs.writeFileSync(`${OUT}/bridge.local.json`, JSON.stringify({ server: path.resolve("mcp/server.mjs"), node }));
   const env = fs.existsSync(".env")
@@ -120,7 +136,7 @@ if (release) {
   };
   if (Object.values(keys).some(Boolean)) fs.writeFileSync(`${OUT}/keys.local.json`, JSON.stringify(keys));
   console.log(
-    `built ${OUT}/ (keys from .env: ${Object.entries(keys)
+    `built ${OUT}/ (mode: ${mode || "default"}, keys from .env: ${Object.entries(keys)
       .map(([k, v]) => `${k.replace("Key", "")} ${v ? "yes" : "no"}`)
       .join(", ")})`,
   );

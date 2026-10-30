@@ -62,3 +62,19 @@ export async function thumb(shot: Shot, width = 640): Promise<string> {
   (c.getContext("2d") as Ctx2D).drawImage(shot.canvas, 0, 0, w, h);
   return dataUrl({ canvas: c }, "image/jpeg", 0.6);
 }
+
+/** The screenshot at the viewport's size in CSS pixels, as base64 JPEG: one image pixel per CSS pixel, so a point read
+ * off the image is a point the page's coordinates (and point and drag) use. The capture is at the device's pixel
+ * ratio (2 in the runner), which the LLM can't see. */
+export async function cssJpeg(jpegB64: string, vp: { w: number; h: number }): Promise<string> {
+  const bmp = await createImageBitmap(b64ToBlob(jpegB64, "image/jpeg"));
+  if (bmp.width === vp.w && bmp.height === vp.h) {
+    bmp.close();
+    return jpegB64;
+  }
+  const canvas = new OffscreenCanvas(vp.w, vp.h);
+  (canvas.getContext("2d") as Ctx2D).drawImage(bmp, 0, 0, vp.w, vp.h);
+  bmp.close();
+  const url = await dataUrl({ canvas }, "image/jpeg", 0.85);
+  return url.slice(url.indexOf(",") + 1);
+}

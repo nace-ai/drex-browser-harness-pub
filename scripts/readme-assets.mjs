@@ -75,7 +75,7 @@ function benchmarks(theme) {
   const head = data.agents
     .map((a) => `<th class="agent${a.ours ? " ours" : ""}"><b>${esc(a.name)}</b><span>${esc(a.model)}</span></th>`)
     .join("");
-  const ours = data.agents.find((a) => a.ours).id;
+  const ours = data.agents.find((a) => a.ours).id; // the highlighted column, and the base the "× the cost" lines use
   const body = data.benchmarks
     .map((b) => {
       const rates = Object.values(b.results).map((r) => r.passed / r.attempts);
@@ -88,10 +88,11 @@ function benchmarks(theme) {
           // a pass rate and a cost read the same for every agent; how many times each ran a task is in docs/evals.md
           const base = b.results[ours].usd;
           const cost = r.usd === undefined ? "cost not measured" : `${per1k(r)} / 1k tasks`;
+          const secs = r.seconds === undefined ? "" : ` · ${String(Math.round(r.seconds))} s`;
           const vs =
             a.ours || r.usd === undefined ? "" : `<div class="sub mono x">${times(r.usd / base)} the cost</div>`;
           return `<td class="cell${a.ours ? " ours" : ""}"><div class="pct mono">${top}${pct(r)}</div>
-<div class="sub mono">${cost}</div>${vs}</td>`;
+<div class="sub mono">${cost}${secs}</div>${vs}</td>`;
         })
         .join("");
       return `<tr><th class="bench"><b>${esc(b.name)}</b><span>${esc(b.detail)}</span></th>${cells}</tr>`;
@@ -119,11 +120,11 @@ th.bench { width: 228px; padding-right: 10px; font-size: 15px; }
   return page(
     theme,
     `<div class="card wrap">
-  <h2>Drex Browser Use and coding agents that drive a browser</h2>
-  <div class="label">Pass rate · model cost of 1,000 tasks · same tasks, graders and machine · October 2026</div>
+  <h2>${esc(data.title)}</h2>
+  <div class="label">${esc(data.subtitle)}</div>
   <table><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table>
-  <p class="foot mono"><i class="best"></i>&nbsp; highest pass rate in the row · Drex Max takes the actions, an LLM helps<br>
-  cost: model API list prices; the coding agents are priced from their tokens · docs/evals.md</p>
+  <p class="foot mono"><i class="best"></i>&nbsp; highest pass rate in the row · ${esc(data.footnote)}<br>
+  cost: model API list prices, Drex Max and the LLM together; Claude Code priced from its tokens · s: mean time a task · docs/evals.md</p>
 </div>`,
     css,
   );

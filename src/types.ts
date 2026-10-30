@@ -1017,8 +1017,9 @@ export interface RunOver extends Partial<Pick<Settings, KeyName | "drexKey" | "n
   model?: string;
   runLimits?: LimitsInput;
 }
-/** A finished run, with what the worker adds to it. */
-export type LastRun = RunResult & { task: string; model: ModelId; planning: boolean; started: string };
+/** A finished run, with what the worker adds to it: the build's run mode ("" or "loop", see src/mode.ts) is there so that
+ * a run's artifacts show which agent made them. */
+export type LastRun = RunResult & { task: string; model: ModelId; planning: boolean; mode: string; started: string };
 /** What a panel shows of the run in progress: the events so far, as [type, data] (only the newest of a screen, aim, totals or busy). */
 export interface PanelRun {
   task: string;
