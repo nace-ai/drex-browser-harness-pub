@@ -6,6 +6,41 @@ Each entry names the part it changes: the Chrome extension or the local runner (
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-30
+
+### Added
+
+- **Chrome extension**: Loop mode, experimental, built with `DREX_MODE=loop npm run build`. One LLM conversation (Claude
+  Haiku 5.5 by default) holds the whole task and returns one action a turn: show the page (`page`, or `look` with a
+  screenshot), read data from it with JavaScript that is checked to only read (`read`, also over up to 8 pages), open an
+  address (`goto`) on the run's site or a site the task names, have Drex Max carry out one concrete step of at most 6
+  moves (`do`), have Drex Max decide many items (`pick`) or check a claim on the screen (`check`), click at a point
+  (`point`) or drag from one point to another (`drag`) itself, and `answer`. `look`'s screenshot is in CSS pixels and
+  its view gives each control's centre, so points are exact. The LLM clicks a listed control or types itself only after
+  Drex Max hands a step back; `point` and `drag` are for what has no control for Drex to pick (a canvas, a shape, drag
+  and drop), and a point, or the start of a drag, on a listed control (selects, rows and grid cells included) is refused
+  until then. A drag of under 5 pixels is a point. A Drex failure no later call can mend (a rejected key, no credit, a
+  model the key can't use, the service down through its retries) ends the run as an error instead of leaving the LLM to
+  carry on alone. There is no planner and no rescue or replan step; a run ends after 30 turns. The LLM's own click or
+  keystroke stays bound to the control it saw (its node and tab): a control that was replaced or removed is refused, and
+  the LLM gets a fresh view of the page. Page text reaches the LLM inside per-run markers it is told not to take
+  instructions from. The default mode is unchanged. See [Benchmarks](README.md#benchmarks).
+
+### Changed
+
+- **Chrome extension** and **local runner**: Drex Max is metered at $0.03 per million input tokens, its list price since
+  28 October 2026 (it was $0.06), so shown costs and dollar run limits match what Drex bills.
+
+### Security
+
+- **Chrome extension**: Loop mode is for evaluation only. Its `read` code is written by the LLM and runs in the page's
+  own JavaScript world, with the page's cookies and network access. It is only checked against a list of patterns, not
+  sandboxed, and the check can be got round: a hostile page that steers the LLM, or a mistaken LLM, can make a read send
+  requests as you on that site or send the page's text to another site. Multi-page reads also navigate the tab you are
+  on. `npm run build:release` refuses Loop mode, so the runner and the MCP server never run it unless you point them at
+  a dev build (`NACE_BROWSER_EXTENSION=dist`). Never use it signed in to an account you care about; use test sites and
+  throwaway accounts, until reads run sandboxed, in their own tab, with the network blocked.
+
 ## [0.1.5] - 2026-10-26
 
 ### Added

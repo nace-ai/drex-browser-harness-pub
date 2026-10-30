@@ -1,6 +1,6 @@
 {
   "name": "nace-browser",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Do tasks in a real browser with the Drex browser agent: Drex Max clicks, an LLM plans and reads.",
   "author": { "name": "Nace.AI" }
 }
