@@ -3,6 +3,7 @@
 // tokens of one word, which is free; the OpenAI and Fireworks checks ask for a two-word answer (a key can list models
 // while its account has no credits left, and only a real call shows that).
 import { DREX_MODEL, DREX_URL, bodyOf, wrongModelMessage } from "./drex.ts";
+import { OPENROUTER_APP } from "./models.ts";
 import type { KeyCheck, LlmKeyCheck, ProviderId } from "./types.ts";
 
 type FetchFn = typeof fetch;
@@ -124,6 +125,11 @@ export const checkOpenRouterKey = (
     key,
     { model, messages: [{ role: "user", content: "Say ok." }], max_tokens: 4 },
     fetchFn,
+    {
+      Authorization: `Bearer ${key}`,
+      "HTTP-Referer": OPENROUTER_APP.url,
+      "X-OpenRouter-Title": OPENROUTER_APP.name,
+    },
   );
 
 export const checkGoogleKey = (key: string | undefined, model: string, fetchFn: FetchFn = fetch): Promise<KeyCheck> =>

@@ -128,6 +128,19 @@ test("a provider error comes back with its HTTP status (a 429 is retried by llm.
   );
 });
 
+test("an OpenRouter call names the app in its headers", async (t) => {
+  let seen;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    seen = { url: String(url), headers: new Headers(init.headers) };
+    return new Response("{}", { status: 400 });
+  });
+  await assert.rejects(() => send(request("z-ai/glm-5.3-flash"), { keys: { openrouter: "sk-or-K" }, timeout: 5000 }));
+  assert.match(seen.url, /^https:\/\/openrouter\.ai\/api\/v1\/chat\/completions$/);
+  assert.equal(seen.headers.get("http-referer"), "https://nace.ai");
+  assert.equal(seen.headers.get("x-openrouter-title"), "Drex Browser Use");
+  assert.equal(seen.headers.get("authorization"), "Bearer sk-or-K");
+});
+
 test("no key for the model's provider says which key to add", async () => {
   await assert.rejects(
     () => send(request("gpt-5.4-mini"), { keys: { anthropic: "k" }, timeout: 5000 }),
