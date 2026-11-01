@@ -6,6 +6,11 @@ Each entry names the part it changes: the Chrome extension or the local runner (
 
 ## [Unreleased]
 
+### Changed
+
+- **Chrome extension and local runner**: calls to OpenRouter now send `HTTP-Referer: https://nace.ai` and
+  `X-OpenRouter-Title: Drex Browser Use`, so OpenRouter can attribute the traffic to this app. Key checks send them too.
+
 ## [0.1.6] - 2026-10-30
 
 ### Added

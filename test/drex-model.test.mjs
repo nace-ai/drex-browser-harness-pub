@@ -136,4 +136,6 @@ test("checking a Gemini key sends it as x-goog-api-key; an OpenRouter key goes a
   });
   assert.match(seen.url, /openrouter\.ai\/api\/v1\/chat\/completions$/);
   assert.equal(seen.init.headers.Authorization, "Bearer sk-or-K");
+  assert.equal(seen.init.headers["HTTP-Referer"], "https://nace.ai");
+  assert.equal(seen.init.headers["X-OpenRouter-Title"], "Drex Browser Use");
 });

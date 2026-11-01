@@ -23,6 +23,9 @@ export const PROVIDERS = {
   openai: { label: "OpenAI", keyName: "openaiKey", prefix: /^sk-/, defaultModel: "gpt-6-luna" },
 } as const satisfies Record<string, ProviderEntry>;
 
+/** How OpenRouter's app rankings and the key owner's activity page name this client (https://openrouter.ai/docs/app-attribution). */
+export const OPENROUTER_APP = { url: "https://nace.ai", name: "Drex Browser Use" } as const;
+
 /** The provider a pasted key belongs to, or null (a Drex key, or nothing we know). */
 export const providerOfKey = (key: unknown): ProviderId | null =>
   // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the panel passes a string; any other value is stringified as before

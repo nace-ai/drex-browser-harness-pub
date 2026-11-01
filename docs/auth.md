@@ -10,6 +10,10 @@ Drex Browser Use calls two services on your behalf, each with its own API key:
 Other LLM providers work with their own key (OpenAI, Google Gemini, OpenRouter, Fireworks); the models are listed in
 the [README](../README.md#models). Signing in with your Drex account instead of a key is not available.
 
+An OpenRouter key (`sk-or-…`) is its own key: the runner reads it from `OPENROUTER_API_KEY`, and the extension takes it as
+the LLM API key. Your Drex key is never sent to OpenRouter. OpenRouter calls carry `HTTP-Referer: https://nace.ai` and
+`X-OpenRouter-Title: Drex Browser Use`, which tell OpenRouter which app made them. They are fixed in this version.
+
 ## Local runner and MCP server
 
 The runner reads keys only from the environment of the process that starts it: `DREX_API_KEY`, and `ANTHROPIC_API_KEY`

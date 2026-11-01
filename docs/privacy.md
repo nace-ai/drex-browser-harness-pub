@@ -34,7 +34,7 @@ the page's controls, and the agent's notes. In the extension, it also receives t
 tabs**, so the plan can use pages you already have open.
 
 The provider is the one whose key you gave: Anthropic by default (Claude Haiku 5.5), or OpenAI, Google, OpenRouter or
-Fireworks. Only that provider is called, with your key, and its own terms govern what it receives: for Anthropic, its
+Fireworks. Only that provider is called, with your key (OpenRouter also gets the app's name and `https://nace.ai` as a referrer, so it can attribute the traffic), and its own terms govern what it receives: for Anthropic, its
 [Commercial Terms](https://www.anthropic.com/legal/commercial-terms) and [privacy policy](https://www.anthropic.com/legal/privacy).
 
 ### What pages can contain

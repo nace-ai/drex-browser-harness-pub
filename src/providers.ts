@@ -8,7 +8,7 @@ import { createFireworks } from "@ai-sdk/fireworks";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { PROVIDERS, providerOf } from "./models.ts";
+import { OPENROUTER_APP, PROVIDERS, providerOf } from "./models.ts";
 import type { FilePart, FinishReason, ModelMessage, TextPart, LanguageModel, LanguageModelUsage } from "ai";
 import type { ApiKeys, LlmAnswer, LlmBlock, LlmRequest, ProviderId, SystemBlock } from "./types.ts";
 
@@ -18,7 +18,7 @@ const FACTORIES: Record<ProviderId, (apiKey: string) => (model: string) => Langu
   openai: (apiKey) => createOpenAI({ apiKey }),
   fireworks: (apiKey) => createFireworks({ apiKey }),
   google: (apiKey) => createGoogleGenerativeAI({ apiKey }),
-  openrouter: (apiKey) => createOpenRouter({ apiKey }),
+  openrouter: (apiKey) => createOpenRouter({ apiKey, appUrl: OPENROUTER_APP.url, appName: OPENROUTER_APP.name }),
 };
 
 export function languageModel(model: string, keys: ApiKeys): LanguageModel {
