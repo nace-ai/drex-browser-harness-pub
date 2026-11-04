@@ -9,6 +9,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { modeOf } from "./args.mjs";
 import { ProfileBusy, home, keepTempCleanupLast, lockProfile, makeTempProfile, profileDir } from "./profiles.mjs";
 import { resultOf } from "./result.mjs";
 import { connectTransport, restrictPages } from "./worker-transport.mjs";
@@ -56,14 +57,15 @@ export function keysFrom(env = process.env) {
 }
 
 /**
- * The unpacked extension the runner loads: the package's release build, or NACE_BROWSER_EXTENSION (a dev build).
- * Not one with keys.local.json (a dev build made with an .env): the extension saves those keys into the profile's
- * storage, and the runner's keys must never reach the disk.
+ * The unpacked extension the runner loads: the package's release build of the mode (extension/ for the default agent,
+ * extension-loop/ for the loop), or NACE_BROWSER_EXTENSION (a dev build), which wins over the mode: the result's
+ * agent_mode then says which agent that build holds. Not one with keys.local.json (a dev build made with an .env): the
+ * extension saves those keys into the profile's storage, and the runner's keys must never reach the disk.
  */
-export function extensionDir(env = process.env) {
+export function extensionDir(env = process.env, mode) {
   const dir = env.NACE_BROWSER_EXTENSION
     ? path.resolve(env.NACE_BROWSER_EXTENSION)
-    : fileURLToPath(new URL("../extension", import.meta.url));
+    : fileURLToPath(new URL(modeOf(mode, env) === "loop" ? "../extension-loop" : "../extension", import.meta.url));
   if (!fs.existsSync(path.join(dir, "manifest.json")))
     throw new RunnerError(
       "extension_missing",
@@ -300,7 +302,7 @@ export function progressLine(type, e) {
 
 /**
  * Runs one task. opts: {task, url, profile, tempProfile, headed, limits {maxCostUsd, maxSeconds, maxLlmCalls}, model,
- * allowRisky, out, allowedOrigins, endsAt, launchDeadline}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. endScreen: false skips the end screenshot (its time is spent for nothing when the caller discards it); the needs_user look still runs, as it decides the outcome. onCleanup(): called once the run's result is in, before the browser closes. handleSignals: see launch().
+ * mode ("default" or "loop": which packaged extension to load; else NACE_BROWSER_MODE, else "loop"), allowRisky, out, allowedOrigins, endsAt, launchDeadline}. tempProfile: a fresh profile, deleted when the run ends (profile is then ignored). onProgress(line) gets a line per move. signal: aborting it stops the run (it ends "cancelled"). killSignal: aborting it closes the browser at once, even mid-run: no stop is asked for and the run's result is lost. endScreen: false skips the end screenshot (its time is spent for nothing when the caller discards it); the needs_user look still runs, as it decides the outcome. onCleanup(): called once the run's result is in, before the browser closes. handleSignals: see launch().
  * Returns the result (resultOf's shape). Throws RunnerError for what stops a run from starting.
  */
 export async function runTask(
@@ -318,7 +320,8 @@ export async function runTask(
   } = {},
 ) {
   const keys = keysFrom(env);
-  const extension = extensionDir(env);
+  const mode = modeOf(opts.mode, env);
+  const extension = extensionDir(env, mode);
   const id = newRunId();
   const created = new Date().toISOString();
   const out = path.resolve(opts.out ?? path.join(home(env), "runs", id));
@@ -401,7 +404,7 @@ export async function runTask(
       // a cancel while the start page loads closes the browser under goto(): that is a cancel, not the site failing
       if (signal?.aborted) throw new RunnerError("cancelled", "The run was cancelled before it started.");
       const run = { status: "failed", message: `Could not open ${opts.url}: ${String(e.message).split("\n")[0]}` };
-      return await finish({ run, out, id, opts, created, started, page: null, ended: null });
+      return await finish({ run, out, id, opts, mode, created, started, page: null, ended: null });
     }
     const panel = await ctx.newPage();
     await panel.goto(`chrome-extension://${extId}/sidepanel.html`);
@@ -512,7 +515,7 @@ export async function runTask(
       if (error) run = { status: "error", message: error };
     }
     const page = killSignal?.aborted ? null : agentPage(ctx, run?.report?.url);
-    return await finish({ run, out, id, opts, created, started, page, ended, screenshot: endScreen });
+    return await finish({ run, out, id, opts, mode, created, started, page, ended, screenshot: endScreen });
   } catch (e) {
     if (signal?.aborted && !(e instanceof RunnerError))
       throw new RunnerError("cancelled", "The run was cancelled before it started.");
@@ -538,7 +541,7 @@ export async function runTask(
 }
 
 /** Saves the run log and the end screen, and makes the result. */
-async function finish({ run, out, id, opts, created, started, page, ended, screenshot = true }) {
+async function finish({ run, out, id, opts, mode, created, started, page, ended, screenshot = true }) {
   const artifacts = [];
   const look = page && run?.status === "needs_user" ? await lookAt(page) : {};
   if (run?.record) {
@@ -571,6 +574,7 @@ async function finish({ run, out, id, opts, created, started, page, ended, scree
     started_at: started,
     finished_at: new Date().toISOString(),
     final_url: page?.url() ?? null, // else resultOf takes the report's, unless the report is an error
+    agent_mode: mode, // what was asked for: the run's own record, when there is one, says what ran
     ended,
     page: look,
     artifacts,

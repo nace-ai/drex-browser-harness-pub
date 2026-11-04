@@ -102,23 +102,31 @@ gear icon). Each setting is described in [docs/extension-settings.md](docs/exten
 Chrome shows a "started debugging this browser" bar while the extension works: it drives tabs through Chrome's
 debugger. Close the bar, or press **Stop**, to end a run.
 
-### Loop mode (experimental)
+### Loop mode (the runner's default)
 
 ```bash
+npm run build                  # the default agent, into dist/
 DREX_MODE=loop npm run build   # the extension in Loop mode, into dist/
+npm run build:release          # both, for the runner: runner/extension/ (default) and runner/extension-loop/ (Loop)
 ```
 
 In Loop mode one LLM conversation holds the whole task. Each turn it reads the page (its text and controls, a
-screenshot, or data it pulls out with JavaScript that is checked to only read, not sandboxed), then hands Drex Max one
-concrete step to carry out, or clicks a point or drags itself on a canvas or a shape, or answers. Drex Max makes the
-moves on the page's controls and hands a step back when it is unsure. It passes more tasks than the default mode on both
-[benchmarks](#benchmarks), clearly so on MiniWoB++.
+screenshot, or data it pulls out with JavaScript that only reads), then hands Drex Max one concrete step to carry out,
+or clicks a point or drags itself on a canvas or a shape, or answers. Drex Max makes the moves on the page's controls
+and hands a step back when it is unsure. It passes more tasks than the default mode on both [benchmarks](#benchmarks),
+clearly so on MiniWoB++, and on 43 further WebArena-Verified tasks nobody had tuned on (below).
 
-It is for evaluation only for now. Its page reads run LLM-written JavaScript in the page itself, with the page's cookies
-and network access; they are checked against a list of patterns, not sandboxed, so a hostile page could steer it into
-sending requests as you or sending page text elsewhere. Never use it signed in to an account you care about: use test
-sites and throwaway accounts. `npm run build:release` refuses it, so the local runner and the MCP server run the default
-mode.
+Since 0.1.7 the local runner and the MCP server run Loop mode unless you ask for the older agent: `--mode default` on
+`nace-browser run` and `nace-browser mcp`, or `NACE_BROWSER_MODE=default`. The result's `agent_mode` says which one ran.
+The Chrome extension you build with `npm run build` is still the default agent; build Loop with `DREX_MODE=loop`.
+
+A `read` runs sealed. Its JavaScript runs in an isolated world of its own, with the network, timers, storage and page
+changes taken away, every request the tab makes meanwhile failed, and a read that moved the page taken back to where it
+was. After the first read, a navigation to another site fails unless a step or the person's turn is under way. This is
+a restriction and a backstop, not a proof. Three residuals are accepted: a `javascript:` address that code outliving a
+read schedules later is logged, not stopped; deferred non-document requests need such code too; and a read can still
+remove or reorder a select's existing options (see [docs/runner.md](docs/runner.md)). Page text reaches the LLM inside per-run markers it is told
+not to take instructions from. Use accounts you can afford to expose until you have judged that risk for yourself.
 
 ## Benchmarks
 
@@ -130,7 +138,7 @@ mode.
 <sub>Pass rate, with the model cost of 1,000 tasks at API list prices, how many times Loop mode's cost it is, and the
 mean time a task · 🟩 highest pass rate in the row · [methodology](docs/evals.md)</sub>
 
-| Benchmark | <mark>**Drex Browser Use**</mark><br><sub>Loop mode (experimental)</sub> | <sub>Drex Browser Use<br>default mode</sub> | <sub>Claude Code<br>Claude Haiku 5.5</sub> |
+| Benchmark | <mark>**Drex Browser Use**</mark><br><sub>Loop mode</sub> | <sub>Drex Browser Use<br>default mode</sub> | <sub>Claude Code<br>Claude Haiku 5.5</sub> |
 | --- | ---: | ---: | ---: |
 | **[WebArena-Verified](https://github.com/ServiceNow/webarena-verified)**<br><sub>60 new tasks · admin panel, forum · 2 tries</sub> | <mark>**64%**</mark><br><sub>$5.92 per 1,000 tasks · 53 s</sub> | 58%<br><sub>$7.49 · 1.3× · 70 s</sub> | 🟩&nbsp;**78%**<br><sub>$7.53 · 1.3× · 91 s</sub> |
 | **[MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus)**<br><sub>78 problems · 39 task types · 2 tries</sub> | <mark>**76%**</mark><br><sub>$2.58 per 1,000 tasks · 24 s</sub> | 60%<br><sub>$2.45 · 1.0× · 18 s</sub> | 🟩&nbsp;**84%**<br><sub>$4.35 · 1.7× · 42 s</sub> |
@@ -145,8 +153,11 @@ All three agents use the same LLM, Claude Haiku 5.5, on the same tasks, pass rul
 - **Loop mode costs less and is faster:** on WebArena-Verified a task costs 21% less than with Claude Code and takes 53
   seconds against 91; on MiniWoB++ it costs 41% less and takes 24 seconds against 42.
 
-Loop mode is experimental: build it with `DREX_MODE=loop npm run build` and use it on test sites only (see
-[the extension](#loop-mode-experimental)). The release build, the local runner and the MCP server run the default mode.
+These numbers are from 0.1.6 and from the task sets its code was developed on. On **43 WebArena-Verified tasks fixed
+before any 0.1.7 work and not tuned on** (19 admin panel, 24 forum, 3 tries each, list prices), Loop mode passed 70%
+(90 of 129) at $4.9 per 1,000 tasks, the default mode 58% (75 of 129) at $6.5, and Claude Code with Haiku 5.5 80%
+(103 of 129) at $6.3. Loop mode is more accurate and cheaper than the default mode and still less accurate than Claude
+Code; 43 tasks is a small sample. Loop mode costs about 77% of Claude Code's price there, less than on the older task set.
 
 <sub>Drex Browser Use 0.1.6 and Claude Code 2.1.289, measured on 30 October 2026. The 60 WebArena-Verified tasks had
 not been used by us before and were picked by a fixed seed before any attempt ran; they come from the admin panel and
@@ -231,10 +242,11 @@ governed by their own terms. Details and links are in [docs/privacy.md](docs/pri
 
 ## Limitations and known issues
 
-- **Accuracy:** on 60 new WebArena-Verified tasks the default mode passes 58% and the experimental Loop mode 64%, where
-  Claude Code with Haiku 5.5 passes 78%; see [Benchmarks](#benchmarks). Check the answer of a run that matters.
-- **Loop mode is for evaluation only** until its page reads are sandboxed: never use it on accounts you care about; see
-  [Loop mode](#loop-mode-experimental).
+- **Accuracy:** Loop mode, the runner's default, passes 70% of 43 untuned WebArena-Verified tasks and the default mode
+  58%, where Claude Code with Haiku 5.5 passes 80%; see [Benchmarks](#benchmarks). Check the answer of a run that
+  matters.
+- **Loop mode's page reads are sealed, not proven safe:** read the residuals under [Loop mode](#loop-mode-the-runners-default)
+  before using it on an account you care about.
 - **Risk detection is English-only and name-based**, as described under [Safety](#safety).
 - **No npm package or Chrome Web Store listing yet:** build from source.
 - **Cloud runs are not available yet.**

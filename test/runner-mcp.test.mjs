@@ -48,6 +48,7 @@ test("browser_task runs with risky actions denied and the limits an agent asked 
       url: "https://a.example/",
       profile: "default",
       headed: false,
+      mode: "loop",
       limits: { maxCostUsd: 0.01, maxSeconds: 60, maxLlmCalls: 20 },
       allowRisky: false,
     },
@@ -70,6 +71,25 @@ test("browser_task runs with risky actions denied and the limits an agent asked 
   assert.equal(bad.isError, true);
   assert.match(bad.structuredContent.error.message, /http or https/);
   await client.close();
+});
+
+test("the server's mode (the flag, else NACE_BROWSER_MODE, else loop) is the agent every browser_task runs, never a tool argument", async () => {
+  const modes = [];
+  const run = async (opts) => (modes.push(opts.mode), { status: "succeeded", outcome: { kind: "completed" } });
+  const args = { task: "x", start_url: "https://a.example/" };
+  for (const deps of [{ env: {} }, { env: {}, mode: "default" }, { env: { NACE_BROWSER_MODE: "default" } }]) {
+    const client = await connect({ ...deps, run });
+    await client.callTool({ name: "browser_task", arguments: args });
+    await client.callTool({ name: "browser_task", arguments: { ...args, mode: "loop" } }); // not in the schema: ignored
+    await client.close();
+  }
+  assert.deepEqual(modes, ["loop", "loop", "default", "default", "default", "default"]);
+  const client = await connect({ env: {}, run });
+  for (const t of (await client.listTools()).tools) assert.ok(!("mode" in t.inputSchema.properties), t.name);
+  await client.close();
+  // a bad mode stops the server before it serves, naming the allowed ones
+  assert.throws(() => createServer({ env: {}, mode: "fast" }), /one of default, loop/);
+  assert.throws(() => createServer({ env: { NACE_BROWSER_MODE: "fast" } }), /one of default, loop/);
 });
 
 test("a bad profile name is the agent's own error (invalid_request), and no browser starts", async () => {

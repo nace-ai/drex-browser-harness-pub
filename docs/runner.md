@@ -19,7 +19,7 @@ You need Node 22.18 or later, npm and git.
 git clone https://github.com/nace-ai/drex-browser-harness-pub.git drex-browser
 cd drex-browser
 npm ci
-npm run build:release                      # writes runner/extension/: the release build, with no keys and no local paths
+npm run build:release                      # writes runner/extension/ and runner/extension-loop/: no keys, no local paths
 node runner/bin/nace-browser.mjs install   # Playwright's Chromium, once (about 170 MB); --with-deps on a bare Linux box
 npm link -w runner                         # optional: puts `nace-browser` and `drex-browser-run` on your PATH
 ```
@@ -46,6 +46,9 @@ Other LLMs are available on the CLI with `--model` (a model id from `src/models.
 `run_refused`), with their provider's usual variable: `OPENAI_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`,
 `OPENROUTER_API_KEY`, or `FIREWORKS_API_KEY`. Accuracy was measured with Claude Haiku 5.5. MCP runs always use the
 default model, so they need `ANTHROPIC_API_KEY`.
+
+OpenRouter calls send `HTTP-Referer: https://nace.ai` and `X-OpenRouter-Title: Drex Browser Use` so OpenRouter can
+attribute them to this app; the Drex key never goes to OpenRouter. The two headers are fixed in this version.
 
 The runner hands the keys to the extension with each run. They are never written to the profile's storage, the run
 artifacts or the build, and keys saved in a profile (for example through a headed run's side panel) are ignored.
@@ -144,13 +147,22 @@ Without `npm link -w runner`, write `node /ABS/PATH/drex-browser/runner/bin/nace
 ```
 nace-browser install [--with-deps]
 nace-browser run "task" --url URL [--json] [--headed] [--profile NAME | --temp-profile]
-                 [--max-cost USD] [--max-seconds N] [--max-llm-calls N] [--model M] [--allow-risky]
-                 [--out DIR] [--quiet]
+                 [--max-cost USD] [--max-seconds N] [--max-llm-calls N] [--model M] [--mode MODE]
+                 [--allow-risky] [--out DIR] [--quiet]
 nace-browser login URL [--profile NAME]
 nace-browser profiles [--json]
-nace-browser mcp
+nace-browser mcp [--mode MODE]
 nace-browser --version | help
 ```
+
+- `--mode` picks the agent: `loop` (an LLM-driven agent, the default) or `default` (the agent as it has worked). It selects which of the package's two extension builds Chromium loads (`extension-loop/` for `loop`, `extension/` for `default`).
+  `NACE_BROWSER_MODE` sets it when the flag is absent, and an unknown value is an error naming the two. On `mcp` it
+  is set when the server starts, never by the agent through a tool argument. The result's `agent_mode` says which agent
+  ran (`mode` stays `"local"`, where the run happened). `NACE_BROWSER_EXTENSION` overrides the build, mode included.
+  The loop's page reads run the LLM's JavaScript sealed: in an isolated world with no way to the page's own code, the
+  network or the page's address, every request the tab makes failed while it runs, and off-site navigations nobody
+  started blocked after it (README, Loop mode). One residual is accepted: a read can still remove or reorder a select's
+  existing options.
 
 - Without `--profile`, `run` and `login` use the profile `default`. A profile name has letters, digits, `-` and `_`,
   starts with a letter or digit, and is at most 64 characters. The task is at most 4,000 characters.
@@ -187,13 +199,15 @@ when they have ended; a client hanging up ends it with `0`.
 ## The result
 
 `run --json` and `browser_task` return the shape Drex's browser runs API uses for a run, so code that reads a
-local run will read a cloud run the same way once cloud runs are available:
+local run will read a cloud run the same way once cloud runs are available. This example is a `--mode default` run; a
+loop run (the default) has `"agent_mode": "loop"` and empty `steps` and `outcome.evidence`:
 
 ```json
 {
   "id": "lrun_mvgamik3f916f9a5",
   "object": "browser_run",
   "mode": "local",
+  "agent_mode": "default",
   "status": "succeeded",
   "task": "Register Ada Lovelace, ada@example.com, from Kazakhstan, with a student ticket, accepting the code of conduct. Tell me the confirmation the page shows.",
   "start_url": "http://127.0.0.1:8901/form.html",
@@ -243,7 +257,7 @@ local run will read a cloud run the same way once cloud runs are available:
 | `outcome.kind` | `status` | When |
 | --- | --- | --- |
 | `completed` | `succeeded` | The run finished its plan. |
-| `blocked_login` | `partial` | A sign-in screen, or another hand-over only a person can do. Run `nace-browser login`. |
+| `blocked_login` | `partial` | A sign-in screen, or another hand-over only a person can do. Run `nace-browser login`. In loop mode (the default) it can also be a question the agent has for the person (`reason` starts "Has a question for you:"); `login` does not apply, so run again with the answer in the task. |
 | `blocked_captcha` | `partial` | A CAPTCHA or "are you human" check on screen (an invisible reCAPTCHA's badge or a hidden widget doesn't count). |
 | `risky_action_denied` | `partial` | The next move needed approval: a click recognized as send, pay, delete, publish or order, a screen-point click whose target is risky or unknown, or a non-hover gesture, or a bulk action over list items (`reason` names it). |
 | `limit_reached` | `partial` | A run limit ran out: cost, time or LLM calls, or a request's cost could not be metered. |
@@ -251,6 +265,8 @@ local run will read a cloud run the same way once cloud runs are available:
 | `internal_error` | `failed` | The run itself failed (a model or key error, for example). |
 | `timed_out` | `timed_out` | The runner stopped a run 60 s past its time limit. |
 | `cancelled` | `cancelled` | Ctrl-C, SIGTERM, SIGHUP, the MCP client cancelled the call, or Stop in a headed run's panel. |
+
+`agent_mode` (`default` or `loop`) is the runner's own field, not part of Drex's API: the agent the extension says it ran, else the one asked for. Loop runs write no plan, so their `steps` and `outcome.evidence` are empty arrays.
 
 `not_found` (on the API) is not reported yet: the harness has no signal for it, so such runs end `completed` with the
 finding in `answer_text`.
@@ -298,8 +314,10 @@ for cloud runs, which are not available yet ([worker.md](worker.md)).
 
 ## Development
 
-- `npm run build:release` writes `runner/extension/`: no keys, no `bridge.local.json`, no sourcemaps. The build fails
-  if the output holds a `*.local.json`, anything shaped like an API key, or the building machine's home directory.
+- `npm run build:release` writes `runner/extension/` (the `default`-mode agent) and `runner/extension-loop/` (the loop): no
+  keys, no `bridge.local.json`, no sourcemaps. The build fails if an output holds a `*.local.json`, anything shaped
+  like an API key, the building machine's home directory, or a run mode other than the one it is named for (read from
+  the built bundle, not from the environment).
   `npm pack` in `runner/` runs it first (`prepack`), so the package always ships a clean build. It also refuses a
   `runner/protocol/` schema whose checksum differs from `source.json` (re-import it from Drex with
   `node scripts/sync-browser-protocol.mjs /path/to/drex`), and records the git SHA, dirty state and browser protocol

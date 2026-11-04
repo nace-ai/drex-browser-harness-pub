@@ -5,6 +5,7 @@ import type {
   BatchStep,
   Box,
   CollectionContract,
+  EnterTarget,
   HistoryEntry,
   LocatedEl,
   MoveOption,
@@ -356,7 +357,7 @@ export function guardSteps(steps: Step[], trusted: Set<string>): { steps: Step[]
 // --- the task's website: a search engine is a detour, and from a data centre a CAPTCHA (runs opened google.com
 // instead of the site's own Research or Events menu, and were handed over at reCAPTCHA) ---
 const SEARCH_HOSTS =
-  /^(www\.)?(google\.[a-z.]+|bing\.com|duckduckgo\.com|search\.yahoo\.com|baidu\.com|yandex\.[a-z]+|ecosia\.org|search\.brave\.com|startpage\.com)$/i;
+  /^(www\.)?(google\.(com|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})|bing\.com|duckduckgo\.com|search\.yahoo\.com|baidu\.com|yandex\.[a-z]+|ecosia\.org|search\.brave\.com|startpage\.com)$/i;
 // a task that asks to use a search engine ("search Google for", "on Bing", "a web search"), not one that names a
 // product or another service of the same company ("a Google Pixel", "Yahoo Finance", "on Google Maps")
 const ENGINES = "(google|bing|duckduckgo|baidu|yandex|ecosia|startpage|brave search|yahoo search)";
@@ -1065,6 +1066,91 @@ export function compactOptions(opts: Record<string, string>, max = 40): Record<s
   return out;
 }
 
+/** A host's site: its registrable domain, roughly ("book.aa.com" -> "aa.com", "news.bbc.co.uk" -> "bbc.co.uk"); an IP
+ * address or a one-label host ("localhost") is its own site. A country's second level (co.uk, com.au) keeps three
+ * labels. A shared host (github.io, atlassian.net) lets anyone register a sibling, so each subdomain there is its own
+ * site: one more label is kept. */
+const SHARED_HOSTS = new Set([
+  "github.io",
+  "gitlab.io",
+  "vercel.app",
+  "netlify.app",
+  "pages.dev",
+  "workers.dev",
+  "herokuapp.com",
+  "blogspot.com",
+  "wordpress.com",
+  "myshopify.com",
+  "atlassian.net",
+  "sharepoint.com",
+  "azurewebsites.net",
+  "cloudfront.net",
+  "firebaseapp.com",
+  "web.app",
+  "onrender.com",
+  "fly.dev",
+  "repl.co",
+  "glitch.me",
+  "surge.sh",
+  "ngrok.io",
+  "ngrok-free.app",
+  "appspot.com",
+  "run.app",
+  "a.run.app",
+  "cloudfunctions.net",
+  "azurestaticapps.net",
+  "azureedge.net",
+  "trafficmanager.net",
+  "pythonanywhere.com",
+  "weebly.com",
+  "wixsite.com",
+  "squarespace.com",
+  "webflow.io",
+  "framer.app",
+  "bubbleapps.io",
+  "streamlit.app",
+  "hf.space",
+  "github.dev",
+  "codesandbox.io",
+  "stackblitz.io",
+  "railway.app",
+]);
+
+export function siteOf(hostname: string): string {
+  const labels = hostname.toLowerCase().split(".");
+  if (labels.length < 3 || /^\d+$/.test(labels.at(-1) ?? "") || hostname.includes(":")) return hostname.toLowerCase();
+  // each bucket or endpoint under amazonaws.com is its own tenant: no two hosts there are one site
+  if (labels.slice(-2).join(".") === "amazonaws.com") return hostname.toLowerCase();
+  const [tld, second] = [labels.at(-1) ?? "", labels.at(-2) ?? ""];
+  let keep = tld.length === 2 && /^(co|com|org|net|ac|gov|edu|ne|or|go)$/.test(second) ? 3 : 2;
+  if (keep === 2 && SHARED_HOSTS.has(labels.slice(-2).join("."))) keep = 3;
+  if (SHARED_HOSTS.has(labels.slice(-3).join("."))) keep = 4; // a regional suffix (a.run.app): one more label
+  return labels.slice(-keep).join(".");
+}
+
+/** Whether a link leaves the run's sites: its destination is a web origin that is neither trusted nor of a trusted
+ * origin's site (a subdomain of the same site counts as the site). A page can plant a link to its own server, and an
+ * unsure Drex may take it; such a link is no move for Drex. A link with no web address (a script, a fragment) stays. */
+export function offSite(el: Pick<PageEl, "linkTo">, trusted: Set<string>): boolean {
+  if (!el.linkTo || trusted.has(el.linkTo)) return false;
+  let to: URL;
+  try {
+    to = new URL(el.linkTo);
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(to.protocol)) return false;
+  const site = siteOf(to.hostname);
+  return ![...trusted].some((origin) => {
+    try {
+      const t = new URL(origin);
+      return t.protocol === to.protocol && siteOf(t.hostname) === site;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function host(url: string | undefined): string {
   try {
     return new URL(url ?? "").host;
@@ -1239,6 +1325,30 @@ export function isRiskyGesture(act: MoveOption): boolean {
   return act.kind === "point" || (act.kind === "gesture" && act.gesture?.kind !== "hover");
 }
 
+/** What "always" remembers for a risky click: the control's role and name on its site. The same name on another kind of
+ * control, or on another site, asks again (a "Delete" allowed for a draft's link is not every Delete button). */
+export function approvalKey(
+  el: { role?: string | null; name?: string | null; text?: string | null },
+  url: string,
+): string {
+  let origin = "";
+  try {
+    origin = new URL(url).origin;
+  } catch {}
+  return [origin, el.role ?? "", (el.name || el.text || "").trim()].join("|");
+}
+
+/** Why pressing Enter in a field needs approval, or "" when it doesn't. Enter submits the field's form as its default
+ * button would: it asks when a click on that button would (a risky name), or, for a form with no such button, when
+ * the form sends something. A field in no form (null) submits nothing; a form that couldn't be read (undefined) is
+ * unknown, and unknown is risky, as with pointRisk. */
+export function enterRisk(target: EnterTarget | null | undefined): string {
+  if (target === undefined) return "what Enter would submit could not be read";
+  if (!target) return "";
+  if (target.button !== null) return riskyName(target.button) ? `it submits the form's '${target.button}'` : "";
+  return target.sends ? "it submits a form that sends what was typed" : "";
+}
+
 const CONSENT_FRAME =
   /consent|cookie|privacy-?(manager|center|mgmt)|\bcmp\b|sourcepoint|onetrust|cookielaw|trustarc|truste\b|didomi|usercentrics|quantcast|cookiebot|consensu/i;
 
@@ -1298,17 +1408,39 @@ export function sliderValueDrag(start: PointTarget | null | undefined): boolean 
  * the page (a carousel, a countdown) may change freely. */
 export const TARGET_TOLERANCE = 8;
 export function targetStale(
-  el: Pick<PageEl, "role" | "name" | "box" | "node"> | null | undefined,
+  el: Pick<PageEl, "role" | "name" | "box" | "node" | "context" | "linkTo"> | null | undefined,
   now: { els?: PageEl[]; off?: PageEl[] } = { els: [], off: [] },
 ): boolean {
   if (!el?.node) return false;
   const all = [...(now.els ?? []), ...(now.off ?? [])];
   const near = (box: Box | undefined) =>
     !!el.box && !!box && el.box.every((v, i) => Math.abs(v - (box[i] ?? NaN)) <= TARGET_TOLERANCE);
+  // a repeated control ("Delete" on each row) carries its row's text: another row in the same place is another control.
+  // The "grid row 2, column 1; button 3 of 10" tail is left out: it shifts when the list grows, with the control unmoved
+  const rowOf = (c: string | undefined) => (c ?? "").replace(/(^|; )grid row \d+, column \d+; [^;]* \d+ of \d+$/, "");
+  // a running clock (h:mm:ss) or "5 minutes ago" beside the control changes without it being another row; an id, an
+  // amount, a time of day or a length ("Yoga 9:00", "Rental 2 days") tells rows apart and is kept
+  const words = (c: string | undefined) =>
+    rowOf(c)
+      .replace(/\b\d{1,2}(:\d{2}){2}\b/g, "")
+      .replace(/\b\d+\s*(seconds?|minutes?|hours?|days?|weeks?|secs?|mins?|hrs?|[smhd])\b ago\b/gi, "");
+  // row text only exists while the label repeats: a list that grew or shrank to one such control is another control
+  const sameRow = (e: PageEl) => !el.context === !e.context && words(e.context) === words(el.context);
   const same = all.find((e) => e.node === el.node);
-  if (same) return !!el.box && !!same.box && !near(same.box);
+  if (same) {
+    const rowChanged = !el.context !== !same.context || words(same.context) !== words(el.context);
+    // a link that now goes to another site is another control: the person approved the site it went to
+    return rowChanged || (el.linkTo ?? "") !== (same.linkTo ?? "") || (!!el.box && !!same.box && !near(same.box));
+  }
   // a re-rendered control is a new node: the same role and label in the same place is still the target
-  return !all.some((e) => e.role === el.role && (e.name || "") === (el.name || "") && near(e.box));
+  return !all.some(
+    (e) =>
+      e.role === el.role &&
+      (e.name || "") === (el.name || "") &&
+      sameRow(e) &&
+      near(e.box) &&
+      (e.linkTo ?? "") === (el.linkTo ?? ""),
+  );
 }
 
 // --- loops: moves that change the screen but go round in a circle ------------------------------------------------

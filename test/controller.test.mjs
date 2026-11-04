@@ -85,6 +85,7 @@ const page = (over = {}) => ({
   notices: async () => ({ url: info.url, notes: [], dialogs: [] }),
   elements: async () => ({ els: [], off: [] }),
   setTemporalFocused: async () => false, // not a date or time field: typed as before
+  focusedFormTarget: async () => null, // the cursor is in no off-site form
   ...over,
 });
 const next = {
@@ -667,6 +668,27 @@ if (!process.env.CONTROLLER_SOURCE) {
     a.read = async () => ({});
     assert.deepEqual(await fill.call(a, step), {});
   });
+  test("fill never types into a field whose form turned off-site after the model chose it", async () => {
+    const field = { label: "E1", role: "textbox", name: "Email", text: "textbox Email", node: 1, field: {} };
+    let looks = 0;
+    const a = agent({
+      fill: async () =>
+        response({
+          why: "",
+          fields: [
+            { label: "E1", desired_value: "a@b.test", source_kind: "instruction", source_evidence: "Email given" },
+          ],
+          unresolved: [],
+        }),
+    });
+    a.onSite = (els) => els.filter((e) => !e.linkTo);
+    a.look = async () => ({ ...scr, els: [looks++ ? { ...field, linkTo: "https://evil.example" } : field] });
+    a.currentTab = async () => ({ info: async () => info, fieldValue: async () => ({}) });
+    a.act = async () => assert.fail("An off-site field must not be typed into");
+    a.read = async () => ({});
+    const result = await fill.call(a, step);
+    assert.ok(result.replan, JSON.stringify(result));
+  });
   test("collection never navigates a detail link with a delete query", async () => {
     const destructive = "http://owned.test/?action=delete&id=1";
     const a = agent({
@@ -1174,6 +1196,7 @@ test("point clicks, drags, double-clicks and key chords are risky: approval firs
   await c.act(page(), { kind: "point", x: 1, y: 1 }, "", scr, [], "llm", 1);
   assert.equal(L.isRiskyGesture({ kind: "point" }), true);
   assert.equal(L.isRiskyGesture({ kind: "gesture", gesture: { kind: "hover" } }), false);
+  assert.equal(L.isRiskyGesture({ kind: "gesture", gesture: { kind: "path" } }), true);
 });
 
 test("a point click goes ahead without approval on a harmless target, and asks on a risky or changed one", async () => {
@@ -1236,6 +1259,169 @@ test("a point click goes ahead without approval on a harmless target, and asks o
   });
   const out2 = await d.act(paying, { kind: "point", x: 5, y: 6 }, "", scr, [], "llm", 1);
   assert.equal(out2.blocked, "stale target");
+});
+
+test("an approved risky click lands on the control approved, or is not made when the page changed while you decided", async () => {
+  // the list reordered while you were asked: the approved Place order now sits lower and another row is in its place
+  const a = agent({ readiness: async () => response({ decision: "ready", evidence: "Ready", next_steps: [] }) });
+  let looks = 0;
+  const moved = { ...order, box: [20, 300, 40, 310] };
+  a.askApproval = async () => "once";
+  a.perform = async () => assert.fail("the approved control moved: nothing is clicked");
+  const history = [];
+  const out = await a.act(
+    page({ elements: async () => ({ els: [looks++ ? moved : order], off: [] }) }),
+    { kind: "click", el: order },
+    null,
+    { ...scr, els: [order] },
+    history,
+    "drex",
+    1,
+  );
+  assert.equal(out.blocked, "stale target");
+  assert.match(history.at(-1).note, /while it was approved/);
+  // the page held still: the click is made
+  const b = agent({ readiness: async () => response({ decision: "ready", evidence: "Ready", next_steps: [] }) });
+  b.askApproval = async () => "once";
+  let performed = 0;
+  b.perform = async () => performed++;
+  b.capture = async () => null;
+  await b.act(
+    page({ elements: async () => ({ els: [order], off: [] }) }),
+    { kind: "click", el: order },
+    null,
+    { ...scr, els: [order] },
+    [],
+    "drex",
+    1,
+  );
+  assert.equal(performed, 1);
+});
+
+test('"always" for a risky click covers that control on that site, not the same name elsewhere', async () => {
+  const a = agent({});
+  a.approvals = true;
+  const asked = [];
+  a.askApproval = async (message) => (asked.push(message), "always");
+  a.perform = async () => {};
+  a.capture = async () => null;
+  const del = { label: "E5", role: "button", name: "Delete", text: "button 'Delete'", node: 5, box: [0, 0, 10, 10] };
+  const link = { ...del, label: "E6", role: "link", text: "link 'Delete'", node: 6 };
+  const click = (el, url) =>
+    a.act(
+      page({ elements: async () => ({ els: [el], off: [] }) }),
+      { kind: "click", el },
+      null,
+      { ...scr, info: { ...scr.info, url }, els: [el] },
+      [],
+      "llm",
+      1,
+      "",
+      { prechecked: true },
+    );
+  await click(del, "http://owned.test/drafts");
+  await click(del, "http://owned.test/sent"); // the same button on the same site: allowed
+  await click(link, "http://owned.test/sent"); // a link with that name: asks
+  await click(del, "http://other.test/drafts"); // the same button on another site: asks
+  assert.equal(asked.length, 3);
+});
+
+test('a point on a risky control asks even after "always" for gestures, and is clicked only if unchanged', async () => {
+  const a = agent({});
+  a.gesturesAllowed = true; // "always" was given for a drag earlier in the task
+  let asked = 0;
+  a.askApproval = async () => (asked++, "once");
+  a.capture = async () => null;
+  const deletes = { names: ["Delete"], role: "button", marks: [], submits: false, frame: false, payment: false };
+  let reads = 0;
+  const shifting = page({
+    // read before asking: the Delete; read before clicking: the row below slid up under the point
+    pointTarget: async () => ({ ...deletes, key: reads++ ? "button|Delete|0|40" : "button|Delete|0|0" }),
+    click: async () => assert.fail("the approved Delete moved away: nothing is clicked"),
+  });
+  const out = await a.act(shifting, { kind: "point", x: 5, y: 6 }, "", scr, [], "llm", 1);
+  assert.equal(asked, 1);
+  assert.equal(out.blocked, "stale target");
+  let clicked = 0;
+  const still = page({
+    pointTarget: async () => ({ ...deletes, key: "button|Delete|0|0" }),
+    click: async () => clicked++,
+  });
+  await a.act(still, { kind: "point", x: 5, y: 6 }, "", scr, [], "llm", 1);
+  assert.equal(asked, 2);
+  assert.equal(clicked, 1);
+});
+
+test("a risky scroll-click whose control went away is not made on another control with the same name", async () => {
+  const a = agent({});
+  const del = { label: "E7", role: "button", name: "Delete", text: "button 'Delete'", node: 7, box: [0, 900, 10, 910] };
+  const other = { ...del, label: "E8", node: 8 };
+  const tab = page({
+    scrollIntoView: async (node) => {
+      if (node === 7) throw new Error("No node with given id found");
+      assert.fail("another row's Delete is not scrolled to");
+    },
+    elements: async () => ({ els: [], off: [other] }),
+    click: async () => assert.fail("another row's Delete is not clicked"),
+  });
+  const out = await a.perform(tab, { kind: "scroll_click", el: del });
+  assert.equal(out.dispatched, false);
+  assert.match(out.reason, /another with its name is not used/);
+  // an ordinary control is still found again by its name
+  let scrolled = 0;
+  const next2 = { ...next, node: 9 };
+  const fresh = { ...next2, node: 10 };
+  const ok = page({
+    scrollIntoView: async (node) => {
+      if (node === 9) throw new Error("No node with given id found");
+      scrolled++;
+    },
+    centre: async () => [1, 1],
+    elements: async () => ({ els: [], off: [fresh] }),
+    click: async () => {},
+  });
+  assert.equal(await a.perform(ok, { kind: "scroll_click", el: next2 }), undefined);
+  assert.equal(scrolled, 1);
+});
+
+test('"always" on a point over a risky control is that control\'s, and a point over an unnamed one asks every time', async () => {
+  const a = agent({});
+  const answers = [];
+  a.askApproval = async () => (answers.push(1), "always");
+  a.capture = async () => null;
+  const under = (names, role = "button") => ({
+    names,
+    role,
+    marks: names.length ? [] : ["delete"],
+    submits: false,
+    frame: false,
+    payment: false,
+    key: `${role}|${names[0] ?? ""}|0|0`,
+  });
+  let n = 0;
+  const point = (target, url = scr.info.url) =>
+    a.act(
+      page({ pointTarget: async () => target, click: async () => {} }),
+      { kind: "point", x: 5 + n++, y: 6 },
+      "",
+      { ...scr, info: { ...scr.info, url } },
+      [],
+      "llm",
+      1,
+    );
+  await point(under(["Delete"]));
+  assert.equal(a.gesturesAllowed, false); // "always" there is not "always" for gestures
+  await point(under(["Delete"]));
+  assert.equal(answers.length, 1); // the same control is remembered
+  await point(under(["Delete"], "link"));
+  assert.equal(answers.length, 2); // another role asks
+  await point(under([]));
+  await point(under([]));
+  assert.equal(answers.length, 4); // an unnamed control is never remembered
+  await point(under(["x"]));
+  await point(under(["X"]));
+  assert.equal(answers.length, 6); // an ASCII close glyph is no name either
+  assert.equal(a.gesturesAllowed, false);
 });
 
 test("a drag that starts on a slider's handle sets a value without approval; a slide-to-act widget still asks", async () => {
@@ -2325,6 +2511,12 @@ test("a re-rendered target (new node, same role, label and place) is not stale",
   assert.equal(L.targetStale(order, now), false);
   assert.equal(L.targetStale(order, { els: [{ ...order, node: 99, box: [20, 200, 40, 210] }] }), true);
   assert.equal(L.targetStale(order, { els: [{ ...order, node: 99, name: "Cancel order" }] }), true);
+  // another row's identical control in the same place is not the approved one, reused node or new
+  const row = { ...order, context: "Draft A" };
+  assert.equal(L.targetStale(row, { els: [{ ...row }] }), false);
+  assert.equal(L.targetStale(row, { els: [{ ...row, context: "Draft B" }] }), true);
+  assert.equal(L.targetStale(row, { els: [{ ...row, node: 99, context: "Draft B" }] }), true);
+  assert.equal(L.targetStale(row, { els: [{ ...row, node: 99 }] }), false);
 });
 
 test("notes and helper-typed texts are not offered on a site the task did not start on or name", async () => {
@@ -2943,6 +3135,7 @@ function siteTab() {
     notices: async () => ({ url: info.url, notes: shown, dialogs: [] }),
     elements: async () => ({ els: [], off: [] }),
     setTemporalFocused: async () => false,
+    focusedFormTarget: async () => null,
   });
   let id = 0;
   // requests: [method, path, status, type]; a 3xx is a form post Chrome reports as redirected to a GET of the same
@@ -4646,4 +4839,30 @@ test("selection readback uses the actual requested option and bounds mismatch re
   assert.ok(!second.replan && !second.partial);
   assert.match(a.notes.setting_mismatch, /requested.*Price.*observed.*Name/);
   assert.equal(selections, 2);
+});
+
+test('a point inside an embedded frame is covered by "always" for gestures, not asked every time', async () => {
+  const a = agent({});
+  a.gesturesAllowed = true;
+  a.askApproval = async () => assert.fail("a frame point asks nothing after always for gestures");
+  a.capture = async () => null;
+  const frame = {
+    names: [],
+    own: [],
+    role: "",
+    marks: [],
+    submits: false,
+    frame: true,
+    payment: false,
+    key: "iframe|0|0",
+  };
+  await a.act(
+    page({ pointTarget: async () => frame, click: async () => {} }),
+    { kind: "point", x: 5, y: 6 },
+    "",
+    scr,
+    [],
+    "llm",
+    1,
+  );
 });

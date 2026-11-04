@@ -12,6 +12,8 @@ Usage: python e2e/run.py "task" [--out runs/NAME] [--start URL] [--model claude-
              its /static/ and /media/ files.
 --site-header "Name: value": send this header with every request to the --start URL's origin, and nowhere else (a
              benchmark site's login: WebArena's shop signs in its customer on each request that carries it).
+--offsite ORIGIN: record every request the browser makes to ORIGIN (from any page or frame) into OUT/offsite.json: a
+             hostile test page's "other site", which a run must never reach.
 --site-only: no host name but the --start URL's resolves (an IP address still connects), apart from the APIs the extension's manifest grants (its own
              calls), so pages can't reach the internet.
 --run-limits JSON: the agent's run limits for this run, e.g. '{"maxHaikuCalls": 40}' (the extension keeps only known,
@@ -23,6 +25,9 @@ import argparse, contextlib, hashlib, json, pathlib, re, shutil, signal, sys, te
 from urllib.parse import urlsplit
 from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
 from run_artifact import initial_run_artifact, panel_run_artifact, save_download_artifact, write_run_artifact
+
+# the reply a question gets when no one is at the browser: the same words as src/agent.ts NO_ONE_TO_ASK
+NO_ONE_TO_ASK = "No one is available to answer. Take the most natural reading of the task that keeps every condition, and go on."
 
 ap = argparse.ArgumentParser()
 ap.add_argument("task")
@@ -45,6 +50,7 @@ ap.add_argument("--plan", default="", help="a plan JSON to run instead of asking
 ap.add_argument("--no-plan", action="store_true", help="turn LLM planning off: Drex works on the task as written")
 ap.add_argument("--stop-when-stored", default="", help="end the run once a page on the --storage origin stores this localStorage key")
 ap.add_argument("--har", default="", help="record the --start origin's traffic into this HAR file")
+ap.add_argument("--offsite", default="", help="record every request to this origin into OUT/offsite.json")
 ap.add_argument("--site-header", action="append", default=[], help="'Name: value' sent with every request to the --start origin")
 ap.add_argument("--run-limits", default="", help='run limits for the agent as JSON, e.g. {"maxHaikuCalls": 40}')
 ap.add_argument("--site-only", action="store_true", help="resolve no host but --start's and the extension's APIs")
@@ -99,6 +105,14 @@ with sync_playwright() as p, contextlib.ExitStack() as closing:
     # too, so a restarted worker is caught as it attaches (from here, before the slow start page and panel setup)
     ext_worker = {"newest": sw}
     ctx.on("serviceworker", lambda w: w.url.startswith(f"chrome-extension://{ext}/") and ext_worker.update(newest=w))
+    offsite = []  # --offsite: the requests that reached the other site, as [method, url]
+    if a.offsite:
+        def note_offsite(r):  # written at once: a run that ends in an error must still show what it sent
+            if r.url.startswith(a.offsite):
+                offsite.append([r.method, r.url])
+                (out / "offsite.json").write_text(json.dumps(offsite) + "\n")
+        (out / "offsite.json").write_text("[]\n")
+        ctx.on("request", note_offsite)
     user = ctx.pages[0]
 
     def add_site_headers(route):
@@ -235,6 +249,14 @@ with sync_playwright() as p, contextlib.ExitStack() as closing:
         if a.stop_when_stored and stored():
             print(f"[{time.time() - t0:6.1f}s] SCORED: the page stored {a.stop_when_stored}; the attempt is over", flush=True)
             break
+        if panel.is_visible("#asks .ask .ask-reply"):
+            # a question (Loop's ask): no one is at this browser, so it gets the reply an unattended run gives, and the
+            # run goes on (agent.ts NO_ONE_TO_ASK)
+            print(f"[{time.time() - t0:6.1f}s] QUESTION: " + panel.inner_text("#asks .ask .ask-text"), flush=True)
+            panel.fill("#asks .ask .ask-reply", NO_ONE_TO_ASK)
+            press("#asks .ask .ask-send")
+            panel.wait_for_timeout(300)
+            continue
         if panel.is_visible("#asks .ask"):
             text = panel.inner_text("#asks .ask")
             allow = panel.locator("#asks .ask button", has_text="Allow for this task")

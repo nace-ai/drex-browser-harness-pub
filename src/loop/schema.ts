@@ -13,6 +13,7 @@ export const LOOP_ACTIONS = [
   "drag",
   "pick",
   "check",
+  "ask",
   "answer",
 ] as const;
 
@@ -207,6 +208,9 @@ function missing(a: LoopAction): string {
       return a.choices.length < 2 ? "pick needs at least 2 choices" : "";
     case "check":
       return blank(a.claim) ? "check needs claim" : "";
+    case "ask":
+      if (blank(a.question)) return "ask needs question";
+      return a.choices.length === 1 ? "ask takes no choices, or at least 2" : "";
     case "answer":
       return blank(a.answer) ? "answer needs answer" : "";
   }

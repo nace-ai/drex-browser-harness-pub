@@ -275,10 +275,22 @@ export interface PageEl {
   draggable?: boolean;
   /** a read-only field (a date picker's input): it takes no typing */
   readOnly?: boolean;
+  /** where using it sends the page, as an origin ("https://shop.example"): a link's address, or for a submit button
+   * or a field of a form, the form's action when it is another origin than the page's. A control that leaves the
+   * run's sites is no move for Drex (L.offSite) */
+  linkTo?: string;
   /** shows text of its own (not only a name from an aria-label, alt or label): copyMove copies it */
   ownText?: boolean;
 }
 /** What a click at a screen point would land on (Tab.pointTarget), read with the mouse already at the point. */
+/** What Enter in a form field would submit (enterTargetOf, run on the field): the name of the form's default submit
+ * button (null: it has none), and whether the form sends something, as PointTarget.submits reads it. */
+export interface EnterTarget {
+  button: string | null;
+  sends: boolean;
+  /** the field still has focus, which is where Enter goes */
+  focused?: boolean;
+}
 export interface PointTarget {
   /** the names of the element hit and of its ancestors up to the control that takes the click (accessible name,
    * label, title, alt, value; nearest first) */
@@ -480,6 +492,31 @@ export interface TabInfo {
   url: string;
   id?: number;
 }
+/** pointerPath: one point of a pointer path, in the units of the surrounding spec (screenshot pixels as the LLM names
+ * them, CSS pixels once the agent converted them). */
+export interface PathPoint {
+  x: number;
+  y: number;
+}
+/** pointerPath: an ellipse or an arc of one, by centre and radii. Angles are degrees from the +x axis, increasing
+ * towards +y (clockwise on screen). startDeg and endDeg both missing: the whole ellipse; closed: the stroke returns
+ * to its first point. */
+export interface ArcSpec {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  startDeg?: number | null;
+  endDeg?: number | null;
+  closed?: boolean | null;
+}
+/** pointerPath: a continuous pointer stroke, given as a polyline (points) or as an ellipse or arc (arc), never both. */
+export interface PathSpec {
+  points?: PathPoint[] | null;
+  arc?: ArcSpec | null;
+  /** a polyline's stroke returns to its first point */
+  closed?: boolean | null;
+}
 export interface GestureSpec {
   kind: string;
   x?: number;
@@ -491,6 +528,8 @@ export interface GestureSpec {
   /** a drag_to gesture: the tags (E#) of the element dragged and of the one it is dropped onto */
   from?: string;
   to?: string;
+  /** a path gesture (pointerPath): the stroke, in CSS pixels of the viewport */
+  path?: PathSpec;
 }
 /** One move Drex can pick (buildOptions), plus the two the agent builds from the LLM's answer: a click at a point and a gesture.
  * Its element is one cdp.elements() listed (the agent reads its node). A move without an element or a text has them
@@ -836,6 +875,9 @@ export interface RescueJson {
     modifiers?: unknown;
     from?: string;
     to?: string;
+    /** pointerPath, in screenshot pixels: the arc is a list of zero or one (the schema is strict, so an unused field
+     * is empty, not absent) */
+    path?: { points?: unknown; arc?: unknown; closed?: unknown } | null;
   };
   new_steps?: LlmStep[];
 }
@@ -897,6 +939,8 @@ export interface MacroHost extends CollectionAgent {
   runOptions?: RunOptions;
   runBudget?: RunBudget;
   trusted?: Set<string>;
+  /** the controls Drex may be offered: all but those that leave the run's sites */
+  onSite?<T extends PageEl>(els: T[], page?: string): T[];
   totals: { drexMoves: number };
   collectionTaskContract?: { task: string; contract: CollectionContract } | null;
   collectionPreparationAttempts?: number;
@@ -944,8 +988,9 @@ export interface MacroHost extends CollectionAgent {
 export type RunStatus = "running" | "done" | "failed" | "partial" | "stopped" | "needs_user" | "error";
 /** Who made a move: Drex, the LLM taking one over, or a macro (collect, fill). */
 export type Who = "drex" | "llm" | "macro";
-/** Your answer to an approval or a hand-over: false stops, true or "once" goes ahead, "always" goes ahead for the rest of the task. */
-export type UserAnswer = boolean | "once" | "always";
+/** An approval's or a hand-over's answer: false (stop), true or "once" (go ahead), "always" (go ahead for the rest of
+ * this task). A question's answer is the person's reply. */
+export type UserAnswer = boolean | "once" | "always" | { reply: string };
 /** What the agent tells the panel: an event's type and its data. */
 export type Emit = (type: string, data: Record<string, unknown>) => void;
 export interface Totals {
@@ -1027,9 +1072,10 @@ export interface PanelRun {
   running: boolean;
   events: [string, Record<string, unknown>][];
 }
-/** An "ask" event: an approval or a hand-over. `items` are list rows, shown one per line. */
+/** An "ask" event: an approval, a hand-over or a question. `items` are list rows, shown one per line; a question's
+ * are the choices it offers. */
 export interface AskEvent {
-  kind?: "approve" | "user";
+  kind?: "approve" | "user" | "question";
   message: string;
   items?: string[];
 }

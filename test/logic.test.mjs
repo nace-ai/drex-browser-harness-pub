@@ -1024,3 +1024,119 @@ test("wantsAggregate: enumerations, top-N and counting words", () => {
   assert.equal(L.wantsAggregate(c({}), "What's the total number of items sold?"), true);
   assert.equal(L.wantsAggregate(c({}), "Open the cheapest SSD"), false);
 });
+
+test("approvalKey: a control's role and name on its site", () => {
+  const del = { role: "button", name: "Delete", text: "button 'Delete'" };
+  assert.equal(L.approvalKey(del, "https://a.test/x"), L.approvalKey(del, "https://a.test/y?z=1"));
+  assert.notEqual(L.approvalKey(del, "https://a.test/x"), L.approvalKey(del, "https://b.test/x"));
+  assert.notEqual(L.approvalKey(del, "https://a.test/x"), L.approvalKey({ ...del, role: "link" }, "https://a.test/x"));
+  assert.equal(L.approvalKey({ role: "button", text: "Pay" }, "not a url"), "|button|Pay");
+});
+
+test("enterRisk: Enter asks where a click on the form's button would", () => {
+  assert.equal(L.enterRisk(null), ""); // in no form
+  assert.match(L.enterRisk(undefined), /could not be read/);
+  assert.match(L.enterRisk({ button: "Place order", sends: false }), /Place order/);
+  assert.equal(L.enterRisk({ button: "Search", sends: true }), "");
+  assert.match(L.enterRisk({ button: null, sends: true }), /sends/);
+  assert.equal(L.enterRisk({ button: null, sends: false }), "");
+});
+
+test("targetStale: the same node unmoved is not stale when its card text or list size changed", () => {
+  const el = {
+    node: 1,
+    role: "button",
+    name: "Delete",
+    box: [0, 0, 50, 20],
+    context: "Ends in 2:13:05; grid row 1, column 1; button 1 of 10",
+  };
+  const now = { ...el, context: "Ends in 2:12:40; grid row 1, column 1; button 1 of 20" };
+  assert.equal(L.targetStale(el, { els: [now] }), false);
+});
+
+test("targetStale: a re-rendered control is the same row despite a longer list, another row is not", () => {
+  const el = {
+    node: 1,
+    role: "button",
+    name: "Delete",
+    box: [0, 0, 50, 20],
+    context: "Item A; grid row 1, column 1; button 1 of 10",
+  };
+  const grown = { ...el, node: 2, context: "Item A; grid row 1, column 1; button 1 of 20" };
+  assert.equal(L.targetStale(el, { els: [grown] }), false);
+  assert.equal(
+    L.targetStale(el, { els: [{ ...grown, context: "Item B; grid row 1, column 1; button 1 of 20" }] }),
+    true,
+  );
+});
+
+test("targetStale: the same node unmoved under another row that differs only in an id is stale", () => {
+  const el = { node: 1, role: "button", name: "Delete", box: [0, 0, 50, 20], context: "Invoice 1001, $25.00" };
+  assert.equal(L.targetStale(el, { els: [{ ...el, context: "Invoice 1002, $25.00" }] }), true);
+  const aged = { ...el, context: "Invoice 1001, 5 minutes ago" };
+  assert.equal(L.targetStale(aged, { els: [{ ...aged, context: "Invoice 1001, 6 minutes ago" }] }), false);
+});
+
+test("targetStale: rows that differ only in a time of day or a length are other rows", () => {
+  const el = { node: 1, role: "button", name: "Cancel", box: [0, 0, 50, 20], context: "Yoga 9:00 AM" };
+  assert.equal(L.targetStale(el, { els: [{ ...el, context: "Yoga 8:00 AM" }] }), true);
+  const rental = { ...el, context: "Rental 2 days" };
+  assert.equal(L.targetStale(rental, { els: [{ ...rental, context: "Rental 3 days" }] }), true);
+  const live = { ...el, context: "Ends in 1:23:45" };
+  assert.equal(L.targetStale(live, { els: [{ ...live, context: "Ends in 1:23:44" }] }), false);
+});
+
+test("siteOf: a host's registrable domain, roughly", () => {
+  assert.equal(L.siteOf("book.aa.com"), "aa.com");
+  assert.equal(L.siteOf("aa.com"), "aa.com");
+  assert.equal(L.siteOf("news.bbc.co.uk"), "bbc.co.uk");
+  assert.equal(L.siteOf("shop.example.com.au"), "example.com.au");
+  assert.equal(L.siteOf("127.0.0.1"), "127.0.0.1");
+  assert.equal(L.siteOf("localhost"), "localhost");
+});
+
+test("siteOf/offSite: each tenant of a shared host is its own site", () => {
+  assert.equal(L.siteOf("a.github.io"), "a.github.io");
+  assert.equal(L.siteOf("www.a.github.io"), "a.github.io");
+  assert.equal(L.offSite({ linkTo: "https://b.github.io" }, new Set(["https://a.github.io"])), true);
+  assert.equal(L.offSite({ linkTo: "https://attacker.atlassian.net" }, new Set(["https://acme.atlassian.net"])), true);
+  assert.equal(L.offSite({ linkTo: "https://www.a.github.io" }, new Set(["https://a.github.io"])), false);
+});
+
+test("siteOf/offSite: independent apps on cloud hosting suffixes are separate sites", () => {
+  assert.equal(L.offSite({ linkTo: "https://attacker.appspot.com" }, new Set(["https://victim.appspot.com"])), true);
+  assert.equal(
+    L.offSite({ linkTo: "https://attacker-abc.a.run.app" }, new Set(["https://victim-abc.a.run.app"])),
+    true,
+  );
+  assert.equal(L.offSite({ linkTo: "https://x.appspot.com" }, new Set(["https://x.appspot.com"])), false);
+});
+
+test("siteOf/offSite: S3 buckets are separate tenants; isSearchEngine accepts only the engines' own domains", () => {
+  assert.equal(
+    L.offSite({ linkTo: "https://attacker.s3.amazonaws.com" }, new Set(["https://victim.s3.amazonaws.com"])),
+    true,
+  );
+  assert.equal(L.isSearchEngine("https://google.attacker.com/search?q=x"), false);
+  assert.equal(L.isSearchEngine("https://www.google.co.uk/search?q=x"), true);
+  assert.equal(L.isSearchEngine("https://www.google.de/search?q=x"), true);
+});
+
+test("offSite: a link leaves the run's sites unless its origin or its site is trusted", () => {
+  const trusted = new Set(["https://www.aa.com", "http://127.0.0.1:8775"]);
+  assert.equal(L.offSite({ linkTo: "https://www.aa.com" }, trusted), false);
+  assert.equal(L.offSite({ linkTo: "https://book.aa.com" }, trusted), false); // a subdomain of the same site
+  assert.equal(L.offSite({ linkTo: "https://evil.example" }, trusted), true);
+  assert.equal(L.offSite({ linkTo: "http://localhost:8775" }, trusted), true); // the hostile pages' other site
+  assert.equal(L.offSite({ linkTo: "http://aa.com" }, trusted), true); // another scheme is another site
+  assert.equal(L.offSite({}, trusted), false); // no address: a script or a fragment, not a way off the site
+  assert.equal(L.offSite({ linkTo: "chrome://settings" }, trusted), false);
+});
+
+test("targetStale: a link whose destination site changed is another control, same node or re-rendered", () => {
+  const el = { node: 1, role: "link", name: "Pay", box: [0, 0, 50, 20], linkTo: "https://a.example" };
+  assert.equal(L.targetStale(el, { els: [{ ...el }] }), false);
+  assert.equal(L.targetStale(el, { els: [{ ...el, linkTo: "https://evil.example" }] }), true);
+  assert.equal(L.targetStale(el, { els: [{ ...el, node: 2, linkTo: "https://evil.example" }] }), true);
+  assert.equal(L.targetStale(el, { els: [{ ...el, node: 2 }] }), false);
+});

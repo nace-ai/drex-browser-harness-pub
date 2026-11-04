@@ -2,7 +2,7 @@
 // errors a caller sees for a bad call.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_LIMITS, MAX_LIMITS, UsageError, limitsOf, parseCli } from "../runner/src/args.mjs";
+import { DEFAULT_LIMITS, MAX_LIMITS, MODES, UsageError, limitsOf, modeOf, parseCli } from "../runner/src/args.mjs";
 
 test("run takes the task, the start URL and the documented options", () => {
   const cmd = parseCli([
@@ -36,6 +36,7 @@ test("run takes the task, the start URL and the documented options", () => {
     tempProfile: false,
     limits: { maxCostUsd: 0.02, maxSeconds: 120, maxLlmCalls: 8 },
     model: "claude-sonnet-5-5",
+    mode: "loop",
     allowRisky: true,
     out: "runs/x",
     quiet: false,
@@ -99,9 +100,47 @@ test("login, profiles, mcp, install, help and version", () => {
   });
   assert.throws(() => parseCli(["login"]), /needs the URL/);
   assert.deepEqual(parseCli(["profiles", "--json"]), { command: "profiles", json: true });
-  assert.deepEqual(parseCli(["mcp"]), { command: "mcp" });
+  assert.deepEqual(parseCli(["mcp"], {}), { command: "mcp", mode: "loop" });
   assert.deepEqual(parseCli(["install", "--with-deps"]), { command: "install", withDeps: true });
   assert.deepEqual(parseCli([]), { command: "help" });
   assert.deepEqual(parseCli(["run", "--help"]), { command: "help" });
   assert.deepEqual(parseCli(["--version"]), { command: "version" });
+});
+
+const RUN = ["run", "task", "--url", "https://a.example/"];
+
+test("--mode picks the agent for run and mcp; without it NACE_BROWSER_MODE does, else the loop", () => {
+  assert.deepEqual(MODES, ["default", "loop"]);
+  assert.equal(parseCli(RUN, {}).mode, "loop");
+  assert.equal(parseCli([...RUN, "--mode", "loop"], {}).mode, "loop");
+  assert.equal(parseCli([...RUN, "--mode=default"], {}).mode, "default");
+  assert.equal(parseCli(["mcp", "--mode", "default"], {}).mode, "default");
+  assert.equal(parseCli(["mcp", "--mode", "loop"], {}).mode, "loop");
+  assert.equal(parseCli(RUN, { NACE_BROWSER_MODE: "loop" }).mode, "loop");
+  assert.equal(parseCli(["mcp"], { NACE_BROWSER_MODE: "loop" }).mode, "loop");
+  assert.equal(parseCli(RUN, { NACE_BROWSER_MODE: "" }).mode, "loop"); // an empty variable is unset
+  assert.equal(parseCli([...RUN, "--mode", "default"], { NACE_BROWSER_MODE: "loop" }).mode, "default"); // the flag wins
+  assert.equal(parseCli(RUN, { NACE_BROWSER_MODE: "default" }).mode, "default");
+  assert.equal(modeOf(undefined, {}), "loop");
+  assert.equal(modeOf("loop", { NACE_BROWSER_MODE: "default" }), "loop");
+});
+
+test("an unknown mode is a usage error that names the allowed ones, from the flag or the environment", () => {
+  for (const bad of ["lop", "LOOP", "Loop", " loop", "agent", ""]) {
+    for (const argv of [
+      [...RUN, "--mode", bad],
+      ["mcp", "--mode", bad],
+    ]) {
+      assert.throws(
+        () => parseCli(argv, {}),
+        (e) =>
+          e instanceof UsageError && /one of default, loop/.test(e.message) && e.message.includes(JSON.stringify(bad)),
+        JSON.stringify(bad),
+      );
+    }
+  }
+  assert.throws(() => parseCli(RUN, { NACE_BROWSER_MODE: "fast" }), /one of default, loop, not "fast"/);
+  assert.throws(() => parseCli(["mcp"], { NACE_BROWSER_MODE: "fast" }), /one of default, loop, not "fast"/);
+  assert.throws(() => parseCli(["profiles", "--mode", "loop"], {}), UsageError); // only run and mcp take it
+  assert.throws(() => parseCli([...RUN, "--mode"], {}), UsageError);
 });

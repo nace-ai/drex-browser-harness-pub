@@ -93,6 +93,18 @@ test("a finished run maps to the browser runs API shape", () => {
     assert.ok(k in r, k);
 });
 
+test("the result says which agent ran: the extension's own record of its build, else the mode the runner asked for", () => {
+  assert.equal(resultOf(run({ mode: "" })).agent_mode, "default"); // a default build records ""
+  assert.equal(resultOf(run({ mode: "loop" })).agent_mode, "loop");
+  // the record wins: a dev build loaded with NACE_BROWSER_EXTENSION may hold another mode than the one asked for
+  assert.equal(resultOf(run({ mode: "loop" }), { agent_mode: "default" }).agent_mode, "loop");
+  // no record (the start page failed to load, or a record from before builds recorded their mode): what was asked for
+  assert.equal(resultOf(run(), { agent_mode: "loop" }).agent_mode, "loop");
+  assert.equal(resultOf(null, { agent_mode: "default" }).agent_mode, "default");
+  assert.equal(resultOf(null).agent_mode, null);
+  assert.equal(resultOf(run()).mode, "local"); // `mode` stays where the run happens, as in Drex's API
+});
+
 test("without a page's URL, final_url is the report's, unless the report is an error", () => {
   assert.equal(
     resultOf(run({ report: { url: "https://a.example/" } }), { final_url: null }).final_url,

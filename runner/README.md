@@ -18,6 +18,13 @@ claude mcp add --scope user nace-browser -- node "$PWD/runner/bin/nace-browser.m
 - `run --json` and the MCP tool `browser_task` return the same result shape.
 - A best-effort guard denies recognized risky clicks; `--allow-risky` disables it on the CLI. Unrecognized clicks
   and Enter can still send, pay, delete or order. Use only tasks and accounts where you authorize those effects.
+- Two agents are packaged: `loop`, an LLM-driven agent (the default), and `default`, the agent as it has worked.
+  `--mode default` on `run` and `mcp` (or `NACE_BROWSER_MODE=default`) selects the older agent; an unknown mode is an error. The result's `agent_mode`
+  says which agent ran.
+  The loop's page reads run the LLM's JavaScript sealed: in an isolated world with no way to the page's own code, the
+  network or the page's address, every request the tab makes failed while it runs, and off-site navigations nobody
+  started blocked after it (README, Loop mode). One residual is accepted: a read can still remove or reorder a select's
+  existing options.
 - Sign-ins and CAPTCHAs end the run; `nace-browser login URL` opens a window to sign in once per profile.
 - Profiles live in `~/.nace/browser/profiles/<name>`, one run at a time each; `--temp-profile` uses a throwaway one.
 - Keys come only from the environment and are never written to disk. Keep them out of MCP config files.

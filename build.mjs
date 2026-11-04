@@ -3,20 +3,24 @@
 // up inside the bundle or in git. dist/bridge.local.json holds this machine's path to mcp/server.mjs, for the setup
 // command the panel shows.
 //
-// `node build.mjs --release` builds a release copy instead, in runner/extension/ (the copy the @nace-ai/browser package
-// ships): no keys, no bridge.local.json, no sourcemaps, and it fails if the output holds a
-// *.local.json file, anything shaped like an API key, or this machine's home directory.
+// `node build.mjs --release` builds the release copies instead, one per run mode (the copies the @nace-ai/browser
+// package ships): runner/extension/ is the default agent and runner/extension-loop/ the LLM loop. Neither holds keys,
+// a bridge.local.json or sourcemaps, and the build fails if an output holds a *.local.json file, anything shaped like
+// an API key, this machine's home directory, or a run mode other than the one it is named for.
 import * as esbuild from "esbuild";
 import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { releaseProblems } from "./scripts/check-release.mjs";
+import { modeProblems, releaseProblems } from "./scripts/check-release.mjs";
 
 process.chdir(path.dirname(fileURLToPath(import.meta.url))); // the paths below are the repo's, whoever runs this
 const release = process.argv.includes("--release");
-const OUT = release ? "runner/extension" : "dist";
+const RELEASES = [
+  { out: "runner/extension", mode: "" },
+  { out: "runner/extension-loop", mode: "loop" },
+];
 // The run mode of src/mode.ts: empty builds the agent as it was, "loop" the LLM loop (src/loop/). Anything else is a typo,
 // and would silently build the default agent. Both checks come before the build touches anything, so a refused build
 // leaves dist/ as it was.
@@ -25,10 +29,10 @@ if (mode !== "" && mode !== "loop") {
   console.error(`DREX_MODE must be empty or "loop", not ${JSON.stringify(mode)}.`);
   process.exit(1);
 }
-if (release && mode === "loop") {
-  console.error(
-    "DREX_MODE=loop can't go into a --release build: the loop mode is eval-only until its read sandbox lands.",
-  );
+// a release builds both modes, so a DREX_MODE here would be ignored: that is a typo too, and a refused build leaves
+// runner/extension/ as it was
+if (release && mode !== "") {
+  console.error("--release builds both modes (runner/extension, runner/extension-loop): unset DREX_MODE.");
   process.exit(1);
 }
 if (release) {
@@ -57,50 +61,54 @@ if (!release) {
     process.exit(1);
   }
 }
-fs.rmSync(OUT, { recursive: true, force: true });
-for (const d of ["icons", "fonts", "brand"]) fs.mkdirSync(`${OUT}/${d}`, { recursive: true });
 
-await esbuild.build({
-  absWorkingDir: process.cwd(), // esbuild took its working directory before the chdir above
-  entryPoints: ["src/background.ts", "src/sidepanel.ts"],
-  bundle: true,
-  format: "esm",
-  platform: "browser",
-  target: "chrome120",
-  outdir: OUT,
-  sourcemap: !release,
-  // the cost switches of src/cost.ts for this build: the measured set by default (2026-10-20: WebArena DEV $0.0042 an
-  // attempt against $0.0134, at the same pass rate), DREX_COST=none for the agent as it worked before them
-  define: {
-    __DREX_COST__: JSON.stringify(
-      process.env.DREX_COST === "none"
-        ? ""
-        : (process.env.DREX_COST ??
-            "packText,llmTaskTrim,noThink,drexCompact,drexText,llmNoImage,staticSchema,verifyDrex,searchEnter,obsLite,collectLite"),
-    ),
-    // the accuracy switches of src/accuracy.ts: the ones on by default are the measured ones listed below (the first
-    // four on WebArena DEV and HOLDOUT-1, the four mechanics on the MiniWoB families they target, 102/140 vs 61/140 on
-    // the eval VM). navMap stays off: gated, it took shopping 239/264 from 0/4 to 4/4 and left reddit level (11/20 vs
-    // 12/20, before the 30-link minimum closed reddit's gate), but on 60 fresh random tasks it measured -2.5 points
-    // with a 95% interval of [-8.7, +3.7] (2026-10-23), short of the no-loss rule. deadUrls, longSelects, frames,
-    // settingReadback, aggregate and listCoverage stay off until a random set confirms them. sortCheck is on: it acts only
-    // when a date sort runs the wrong way (see src/accuracy.ts), at no model cost.
-    // DREX_ACC=none builds without any switch, DREX_ACC="noteResolve,answerGuard" builds with just those
-    __DREX_ACC__: JSON.stringify(
-      process.env.DREX_ACC === "none"
-        ? ""
-        : (process.env.DREX_ACC ??
-            "noteResolve,answerGuard,answerRules,scanOn,confirmedChanges,revealEvidence,dragTo,datePicker,pickSuggestion,copyMove,sortCheck"),
-    ),
-    // the run mode of src/mode.ts, checked above: DREX_MODE=loop builds the LLM loop (src/loop/), none the agent as before
-    __DREX_MODE__: JSON.stringify(mode),
-  },
-  logLevel: "warning",
-});
+// One extension of one mode into OUT: the bundles and the static files.
+async function buildInto(OUT, mode) {
+  fs.rmSync(OUT, { recursive: true, force: true });
+  for (const d of ["icons", "fonts", "brand"]) fs.mkdirSync(`${OUT}/${d}`, { recursive: true });
 
-for (const f of ["manifest.json", "sidepanel.html", "sidepanel.css"]) fs.copyFileSync(`src/${f}`, `${OUT}/${f}`);
-for (const d of ["icons", "fonts", "brand"])
-  for (const f of fs.readdirSync(`src/${d}`)) fs.copyFileSync(`src/${d}/${f}`, `${OUT}/${d}/${f}`);
+  await esbuild.build({
+    absWorkingDir: process.cwd(), // esbuild took its working directory before the chdir above
+    entryPoints: ["src/background.ts", "src/sidepanel.ts"],
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "chrome120",
+    outdir: OUT,
+    sourcemap: !release,
+    // the cost switches of src/cost.ts for this build: the measured set by default (2026-10-20: WebArena DEV $0.0042 an
+    // attempt against $0.0134, at the same pass rate), DREX_COST=none for the agent as it worked before them
+    define: {
+      __DREX_COST__: JSON.stringify(
+        process.env.DREX_COST === "none"
+          ? ""
+          : (process.env.DREX_COST ??
+              "packText,llmTaskTrim,noThink,drexCompact,drexText,llmNoImage,staticSchema,verifyDrex,searchEnter,obsLite,collectLite"),
+      ),
+      // the accuracy switches of src/accuracy.ts: the ones on by default are the measured ones listed below (the first
+      // four on WebArena DEV and HOLDOUT-1, the four mechanics on the MiniWoB families they target, 102/140 vs 61/140 on
+      // the eval VM). navMap stays off: gated, it took shopping 239/264 from 0/4 to 4/4 and left reddit level (11/20 vs
+      // 12/20, before the 30-link minimum closed reddit's gate), but on 60 fresh random tasks it measured -2.5 points
+      // with a 95% interval of [-8.7, +3.7] (2026-10-23), short of the no-loss rule. deadUrls, longSelects, frames,
+      // settingReadback, aggregate and listCoverage stay off until a random set confirms them. sortCheck is on: it acts only
+      // when a date sort runs the wrong way (see src/accuracy.ts), at no model cost.
+      // DREX_ACC=none builds without any switch, DREX_ACC="noteResolve,answerGuard" builds with just those
+      __DREX_ACC__: JSON.stringify(
+        process.env.DREX_ACC === "none"
+          ? ""
+          : (process.env.DREX_ACC ??
+              "noteResolve,answerGuard,answerRules,scanOn,confirmedChanges,revealEvidence,dragTo,datePicker,pickSuggestion,copyMove,sortCheck"),
+      ),
+      // the run mode of src/mode.ts, checked above: DREX_MODE=loop builds the LLM loop (src/loop/), none the agent as before
+      __DREX_MODE__: JSON.stringify(mode),
+    },
+    logLevel: "warning",
+  });
+
+  for (const f of ["manifest.json", "sidepanel.html", "sidepanel.css"]) fs.copyFileSync(`src/${f}`, `${OUT}/${f}`);
+  for (const d of ["icons", "fonts", "brand"])
+    for (const f of fs.readdirSync(`src/${d}`)) fs.copyFileSync(`src/${d}/${f}`, `${OUT}/${d}/${f}`);
+}
 
 if (release) {
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -108,14 +116,21 @@ if (release) {
     encoding: "utf8",
   }).trim();
   fs.writeFileSync("runner/build-info.json", JSON.stringify({ sha, dirty, protocol: "2" }, null, 2) + "\n");
-  const problems = releaseProblems(OUT);
+  const problems = [];
+  for (const r of RELEASES) {
+    await buildInto(r.out, r.mode);
+    problems.push(...releaseProblems(r.out), ...modeProblems(r.out, r.mode));
+  }
   if (problems.length) {
     console.error(`release build refused:\n${problems.join("\n")}`);
-    fs.rmSync(OUT, { recursive: true, force: true });
+    for (const r of RELEASES) fs.rmSync(r.out, { recursive: true, force: true });
     process.exit(1);
   }
-  console.log(`built ${OUT}/ (release, mode: ${mode || "default"}: no keys, no local paths, no sourcemaps)`);
+  for (const r of RELEASES)
+    console.log(`built ${r.out}/ (release, mode: ${r.mode || "default"}: no keys, no local paths, no sourcemaps)`);
 } else {
+  const OUT = "dist";
+  await buildInto(OUT, mode);
   fs.writeFileSync(`${OUT}/bridge.local.json`, JSON.stringify({ server: path.resolve("mcp/server.mjs"), node }));
   const env = fs.existsSync(".env")
     ? Object.fromEntries(

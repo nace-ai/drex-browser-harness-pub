@@ -3,6 +3,7 @@ node_modules/
 dist/
 release/
 runner/extension/
+runner/extension-loop/
 runner/build-info.json
 .worker-releases/
 .worktrees/

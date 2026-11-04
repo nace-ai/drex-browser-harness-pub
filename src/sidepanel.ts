@@ -352,12 +352,14 @@ function showAsk(e: Omit<AskEvent, "items"> & { items?: string[] | null; image?:
   card.className = "panel ask";
   const title = document.createElement("p");
   title.className = "ask-title";
-  title.textContent = e.kind === "approve" ? "Approval needed" : "Your turn";
+  title.textContent =
+    e.kind === "approve" ? "Approval needed" : e.kind === "question" ? "Drex has a question" : "Your turn";
   const p = document.createElement("p");
   p.className = "ask-text";
   p.textContent = e.message;
   card.append(title, p);
-  if (e.items?.length) {
+  // a question's items are its choices: each is a button that answers with it
+  if (e.items?.length && e.kind !== "question") {
     const ul = document.createElement("ul");
     ul.className = "ask-items";
     for (const text of e.items) {
@@ -386,10 +388,41 @@ function showAsk(e: Omit<AskEvent, "items"> & { items?: string[] | null; image?:
   };
   if (e.kind === "approve")
     row.append(button("Stop", false), button("Allow once", "once"), button("Allow for this task", "always", true));
-  else row.append(button("Stop", false), button("I'm done, continue", true, true));
+  else if (e.kind === "question") {
+    const choices = document.createElement("div");
+    choices.className = "actions ask-choices";
+    for (const choice of e.items ?? []) choices.append(button(choice, { reply: choice }));
+    if (e.items?.length) card.append(choices);
+    // or a reply in your own words: Enter sends it, Shift+Enter starts a new line
+    const reply = document.createElement("textarea");
+    reply.className = "ask-reply";
+    reply.rows = 2;
+    reply.placeholder = e.items?.length ? "Or answer in your own words" : "Your answer";
+    const send = button("Send", { reply: "" }, true);
+    send.classList.add("ask-send");
+    send.onclick = () => {
+      if (reply.value.trim())
+        port.postMessage({ type: "answer", value: { reply: reply.value } } satisfies PanelMessage);
+    };
+    reply.onkeydown = (k) => {
+      if (k.key === "Enter" && !k.shiftKey) {
+        k.preventDefault();
+        send.click();
+      }
+    };
+    card.append(reply);
+    row.append(button("Stop", false), send);
+  } else row.append(button("Stop", false), button("I'm done, continue", true, true));
   card.append(row);
   $("asks", HTMLElement).replaceChildren(card);
-  setStatus(e.kind === "approve" ? "Waiting for your approval" : "Waiting for you", "busy");
+  setStatus(
+    e.kind === "approve"
+      ? "Waiting for your approval"
+      : e.kind === "question"
+        ? "Waiting for your answer"
+        : "Waiting for you",
+    "busy",
+  );
 }
 
 /** The agent's events as the panel reads them (agent.ts logs them; the worker passes them on without their screen thumbnail). */

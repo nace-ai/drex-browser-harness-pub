@@ -154,7 +154,7 @@ test("parsePoint reads x,y in CSS pixels, with or without parentheses and spaces
 test("the action schema lists every field as required and allows no others", () => {
   assert.deepEqual(
     [...LOOP_ACTIONS],
-    ["page", "look", "read", "goto", "do", "click", "type", "point", "drag", "pick", "check", "answer"],
+    ["page", "look", "read", "goto", "do", "click", "type", "point", "drag", "pick", "check", "ask", "answer"],
   );
   const fields = Object.keys(ACTION_SCHEMA.properties);
   assert.equal(fields.length, 20);
@@ -197,6 +197,8 @@ test("readProblem refuses code that could change the page or reach the network",
     "el.classList.add('x')",
     "el['click']()",
     "import('/x.js')",
+    "import<!--\n('/x.js')",
+    "import\n-->x\n('/x.js')",
   ];
   for (const js of unsafe) assert.equal(typeof readProblem(js), "string", js);
 });
@@ -218,6 +220,7 @@ test("readProblem allows reads, including names that only look like calls", () =
     "a.value === 1 ? 'y' : 'n'",
     "names.includes('fetch')",
     "document.querySelector('.fetch-button')",
+    "document.querySelector('.import-button')",
   ]) {
     assert.equal(readProblem(js), null, js);
   }
@@ -390,17 +393,19 @@ const RULE_10 = "10. Keep the thought short: what you saw, what you will do next
 const RULE_11 = `11. To find the newest, oldest, cheapest, highest or lowest item, first sort or filter the list with the site's own controls (or the sort settings in its address), then read the top. Don't page through an unsorted list.`;
 const RULE_12 = `12. Summaries such as dashboard widgets, previews and "top 5" boxes can be partial or ordered differently. For a ranking, a count or a total, read the site's full list or report for that data.`;
 const RULE_13 = `13. When the task is about one named item (a product, an order, a theme, a user, a post), that item's own page is the place: open it rather than stopping at a list or grid that contains it.`;
-const RULE_14 = `14. When the task is about positions, shapes, drawing or dragging, use look to find exact coordinates, then point or drag, and look again to check the result.`;
+const RULE_14 = `14. When the task is about positions, shapes, drawing or dragging, use look to find exact coordinates, then point or drag, and look again to check the result. To drop a listed item onto another listed element (a card onto a cell), use do: Drex drags element to element.`;
+const RULE_15 = `15. When a form lacks an option the task asks for (a size, a color, a category), an earlier choice in the same form (a product's attribute set, type or template) may decide which options exist. Change that choice to one that offers every option the task names, check the form again, and only then conclude the option does not exist.`;
+const RULE_16 = `16. Only when the task says what today's date is ("today is May 4, 2024") read "today", "this year" and "last month" against that date; otherwise the TODAY line (the computer's clock) stands, and dates the task names are used as written.`;
 
 test("the prompts are the loop's texts", async () => {
   const { PAGE_SAFETY } = await import("../src/safety.ts");
   assert.ok(LOOP_SYSTEM.startsWith("You drive a browser agent that works in the user's own Chrome"));
   assert.ok(LOOP_SYSTEM.includes("`js` is read-only JavaScript"));
   assert.ok(LOOP_SYSTEM.includes(RULE_11));
-  // the page-safety rule is a paragraph of its own after the rules, the last of which is the fourteenth
-  assert.ok(LOOP_SYSTEM.endsWith(`${RULE_14}\n\n${PAGE_SAFETY}`));
-  // the four rules follow the tenth, in this order
-  assert.ok(LOOP_SYSTEM.includes([RULE_10, RULE_11, RULE_12, RULE_13, RULE_14].join("\n")));
+  // the page-safety rule is a paragraph of its own after the rules, the last of which is the sixteenth
+  assert.ok(LOOP_SYSTEM.endsWith(`${RULE_16}\n\n${PAGE_SAFETY}`));
+  // the six rules follow the tenth, in this order
+  assert.ok(LOOP_SYSTEM.includes([RULE_10, RULE_11, RULE_12, RULE_13, RULE_14, RULE_15, RULE_16].join("\n")));
   assert.ok(FORCE_ANSWER.startsWith("No more actions are possible."));
   assert.ok(FORMAT_RETRY.startsWith("Your answer is not in the format the task asks for."));
 });
@@ -435,6 +440,8 @@ test("the prompt gives point and drag CSS-pixel points, keeps listed controls fo
   assert.match(line("point"), /click at `at` \("x,y" in CSS pixels\) yourself/);
   assert.match(line("point"), /A point on a listed control is refused until Drex hands it back/);
   assert.match(line("drag"), /press at `at`, move to `to` and let go/);
+  assert.match(line("drag"), /A listed item dropped onto another listed element is a do\./);
+  assert.match(line("do"), /do can also drag a listed item onto another element/);
   assert.match(line("look"), /The screenshot is in CSS pixels/);
 });
 
@@ -445,5 +452,51 @@ test("the prompt's do line gives a text for each field Drex should fill, where i
   // it stands where the old sentence did: after the examples and before Drex's moves
   const [before, after] = line.split(TEXTS_SENTENCE);
   assert.ok(before.endsWith('"type the search words into the search box and submit". '), before);
-  assert.ok(after.startsWith(" Drex makes at most 6 moves, then reports what it did"), after);
+  // the limit of one do follows the sentence, then Drex's moves
+  assert.ok(
+    after.startsWith(
+      " One do takes texts for at most 4 fields (the single `text` counts as one); split a longer form over several do actions. Drex makes at most 6 moves, then reports what it did",
+    ),
+    after,
+  );
+});
+
+test("the prompt's last rule puts a date the task gives before the TODAY line", () => {
+  assert.match(
+    LOOP_SYSTEM,
+    /\n16\. Only when the task says what today's date is \("today is May 4, 2024"\) read .*used as written\./,
+  );
+});
+
+test("parseAction: ask needs a question, and no choices or at least two", () => {
+  assert.equal(parseAction({ action: "ask", question: "Which size?" }).question, "Which size?");
+  assert.deepEqual(parseAction({ action: "ask", question: "Which size?", choices: ["S", "M"] }).choices, ["S", "M"]);
+  assert.deepEqual(parseAction({ action: "ask" }), { error: "ask needs question" });
+  assert.deepEqual(parseAction({ action: "ask", question: "Which size?", choices: ["S"] }), {
+    error: "ask takes no choices, or at least 2",
+  });
+});
+
+test("READ_SEAL takes away the constructors whose callbacks would run after the read", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const { READ_SEAL } = await import("../src/loop/read.ts");
+  const out = runInNewContext(
+    `${READ_SEAL}\n[ "FinalizationRegistry", "MutationObserver", "ReportingObserver" ].map(n => {
+      if (typeof globalThis[n] !== "function") return "absent";
+      try { new globalThis[n](() => {}); return "ran"; } catch (e) { return /not available in a read/.test(e.message) ? "sealed" : "ran"; }
+    })`,
+    { MutationObserver: function () {}, FinalizationRegistry },
+  );
+  assert.deepEqual([...out], ["sealed", "sealed", "absent"]);
+});
+
+test("READ_SEAL takes away __lookupGetter__ and its kin, which hand out the real window's accessors", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const { READ_SEAL } = await import("../src/loop/read.ts");
+  const out = runInNewContext(
+    `${READ_SEAL}\n["__lookupGetter__", "__lookupSetter__", "__defineGetter__", "__defineSetter__"].map(n => {
+      try { ({})[n]("x"); return "ran"; } catch (e) { return /not available in a read/.test(e.message) ? "sealed" : "ran"; }
+    })`,
+  );
+  assert.deepEqual([...out], ["sealed", "sealed", "sealed", "sealed"]);
 });

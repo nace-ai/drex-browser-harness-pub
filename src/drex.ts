@@ -1,4 +1,5 @@
 import { RunLimit } from "./run-budget.ts";
+import { NACE_CLIENT, NACE_CLIENT_HEADER } from "./client-id.ts";
 import type { RunBudget } from "./run-budget.ts";
 import type { DrexAnswer, DrexReply, DrexBody, Questions, RequestUsage } from "./types.ts";
 // Drex Max client: one POST /v1/systemone per decision, with images. Production reads images since 2026-10-18
@@ -121,7 +122,11 @@ export class Drex {
       try {
         r = await fetch(this.url, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.key}` },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.key}`,
+            [NACE_CLIENT_HEADER]: NACE_CLIENT,
+          },
           body,
           signal,
         });

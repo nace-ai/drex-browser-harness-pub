@@ -1337,7 +1337,9 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
   const tab = await this.currentTab();
   const scr = await this.look(tab);
   const toggles = new Set<string | undefined>(["checkbox", "radio", "switch"]);
-  const fields = scr.els.filter((e) => !!e.field || !!e.select || !!e.slider || toggles.has(e.role));
+  // off-site controls (a planted form that sends to another site) are no fields for Drex to fill
+  const onSite = this.onSite ? this.onSite(scr.els, scr.info.url) : scr.els;
+  const fields = onSite.filter((e) => !!e.field || !!e.select || !!e.slider || toggles.has(e.role));
   const info = await tab.info(30000);
   this.log("fill_fields", { fields: fields.map((e) => L.describe(e).slice(0, 80)) });
   const focus = scr.shot ? await focusedEvidence(scr.shot, scr.els) : null;
@@ -1464,7 +1466,9 @@ export async function fill(this: MacroHost, step: Step): Promise<Outcome> {
     if (!original) return { fail: `Unknown form field: ${String(assignment.label)}` };
     const current = await this.look(tab);
     if (current.info.url !== info.url) return recover("Form page changed before dispatch; inspect current effects");
-    const candidates = current.els.filter((e) => sameFieldIdentity(e, original));
+    // the page may have changed since the snapshot the model saw: a form now sending off-site is no field to fill
+    const onSiteNow = this.onSite ? this.onSite(current.els, current.info.url) : current.els;
+    const candidates = onSiteNow.filter((e) => sameFieldIdentity(e, original));
     const [el] = candidates;
     if (candidates.length !== 1 || !el)
       return recover(
