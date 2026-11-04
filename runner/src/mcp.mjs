@@ -3,11 +3,13 @@
 //   browser_login     opens a window for a person to sign in, and returns when it is closed;
 //   browser_profiles  lists the saved profiles.
 // The risky-click guard is always enabled here: --allow-risky is a person's choice on the command line, not an agent's.
-// An agent may lower the run limits, never raise them. NACE_BROWSER_HEADED=1 shows the browser window.
+// An agent may lower the run limits, never raise them. NACE_BROWSER_HEADED=1 shows the browser window. Which agent runs
+// ("default" or "loop") is the person's choice too, made when the server starts (`nace-browser mcp --mode default` or
+// NACE_BROWSER_MODE; the loop when neither is set), not a tool argument.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { DEFAULT_LIMITS, UsageError, checkUrl, limitsOf, profileOf } from "./args.mjs";
+import { DEFAULT_LIMITS, UsageError, checkUrl, limitsOf, modeOf, profileOf } from "./args.mjs";
 import { login } from "./login.mjs";
 import { DEFAULT_PROFILE, listProfiles } from "./profiles.mjs";
 import { errorOf } from "./result.mjs";
@@ -22,10 +24,18 @@ const json = (value, isError = false) => ({
 const failure = (e) => json(errorOf(e instanceof UsageError ? "invalid_request" : codeOf(e), e.message), true);
 
 /**
- * The server, with its tools registered. deps replaces the run, login and env in tests. handleSignals: false when the
+ * The server, with its tools registered. deps replaces the run, login and env in tests. mode: the agent its runs use
+ * (else NACE_BROWSER_MODE, else "loop"); a bad one throws before the server exists. handleSignals: false when the
  * caller handles SIGTERM itself (`nace-browser mcp` cancels the running tools); see run.mjs's launch().
  */
-export function createServer({ env = process.env, run = runTask, signIn = login, handleSignals = true } = {}) {
+export function createServer({
+  env = process.env,
+  mode: wanted,
+  run = runTask,
+  signIn = login,
+  handleSignals = true,
+} = {}) {
+  const mode = modeOf(wanted, env);
   const server = new McpServer({ name: "nace-browser", version: version() });
 
   server.registerTool(
@@ -39,7 +49,9 @@ export function createServer({ env = process.env, run = runTask, signIn = login,
         "A best-effort click guard stops recognized risky clicks with outcome risky_action_denied, but cannot " +
         "prevent every payment, send, deletion or order (for example, forms submitted with Enter). " +
         "Use only for tasks and accounts where the person authorizes those effects. A sign-in or CAPTCHA ends it " +
-        "blocked_login or blocked_captcha: ask the person to run browser_login. Runs take seconds to minutes.",
+        "blocked_login or blocked_captcha: ask the person to run browser_login, except when outcome.reason starts " +
+        '"Has a question for you:" (loop mode): ask the person that question and run again with the answer in the ' +
+        "task. Runs take seconds to minutes.",
       inputSchema: {
         task: z.string().min(1).max(4000).describe("What to do, in plain words, with the answer you want back."),
         start_url: z.string().describe("The http(s) page the run starts on."),
@@ -72,6 +84,7 @@ export function createServer({ env = process.env, run = runTask, signIn = login,
           url: checkUrl(args.start_url, "start_url"),
           profile: profileOf(args.profile),
           headed: env.NACE_BROWSER_HEADED === "1",
+          mode,
           // an agent lowers the limits; it can't raise them (the zod schema caps each at its default)
           limits: limitsOf({ maxCost: args.max_cost_usd, maxSeconds: args.max_seconds }, DEFAULT_LIMITS),
           allowRisky: false,
@@ -102,7 +115,8 @@ export function createServer({ env = process.env, run = runTask, signIn = login,
       description:
         "Open a visible browser window on a saved profile so the person at this computer can sign in to a site. " +
         "Returns when they close the window (at most 15 minutes). Later browser_task runs on that profile are " +
-        "signed in. Call it when a run ended blocked_login, and tell the person what to do in the window.",
+        'signed in. Call it when a run ended blocked_login with a sign-in request (not a "Has a question for you:" reason, ' +
+        "which a sign-in cannot answer), and tell the person what to do in the window.",
       inputSchema: {
         url: z.string().describe("The http(s) page to sign in on."),
         profile: z.string().optional().describe(`The profile to keep the session in (default "${DEFAULT_PROFILE}").`),

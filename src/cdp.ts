@@ -1,9 +1,11 @@
 import type { Protocol } from "devtools-protocol";
 import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import { domCandidates, publicMetadata } from "./candidates.ts";
-import { pointTargetAt } from "./point-target.ts";
+import { offOriginTarget } from "./form-target.ts";
+import { enterTargetOf, pointTargetAt } from "./point-target.ts";
 import { normalizeLiteral, originOf } from "./logic.ts";
 import { accOn } from "./accuracy.ts";
+import { at, samplePath } from "./gesture-path.ts";
 import { revealAnswer, revealFacts, type RevealOptions, type Revealed } from "./evidence.ts";
 import type {
   Box,
@@ -19,6 +21,7 @@ import type {
   PageElements,
   PageInfo,
   PageItem,
+  EnterTarget,
   PointTarget,
   Problem,
   PublicMetadata,
@@ -84,6 +87,14 @@ const TELEMETRY_PATH = /collect|analytics|track|beacon|metrics|\/log\b|\/event/i
 const TELEMETRY_TYPE = /^(ping|beacon)$/i;
 const GRAPHQL_PATH = /\/graphql\/?$/i;
 const MAX_MUTATIONS = 100; // the site requests a tab keeps (the oldest go first)
+const MAX_SEALED = 20; // the blocked requests a sealed read names
+// the isolated worlds Loop reads run in (sealedRead): a new one for each read, named with a count, so nothing one read
+// leaves in its world (a replaced built-in, a planted hook) is there for the next one
+const READ_WORLD = "drex-read";
+let readWorlds = 0;
+const PAGE_REQUESTS = { urlPattern: "*", resourceType: "Document" as const }; // what guardNavigations pauses
+const SEAL_GRACE_MS = 150; // how long requests stay blocked after a read's code returns
+const SEAL_NAV_WAIT_MS = 2000; // the longest wait for a tampered page to clear to about:blank (clearPage)
 const LISTENER_CACHE_MS = 5000;
 const CLICK_EVENTS = new Set(["click", "pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend"]);
 const MAX_OFFSCREEN = 40;
@@ -186,7 +197,9 @@ const BOX_FN = `function () {
     cl.contains("ui-sortable-handle") || this.hasAttribute("aria-grabbed");
   // visible text of its own (not a name from an aria-label, alt or <label>): what a copy of it would carry
   const ownText = !["INPUT", "SELECT", "TEXTAREA"].includes(tag) && !!(this.innerText || "").trim();
-  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, form, readOnly, draggable, ownText, visible];
+  // where a form control sends the page, when that is another origin (offOriginTarget)
+  const sendsTo = (${offOriginTarget.toString()})(this);
+  return [r.left, r.top, r.width, r.height, covered, group, editable, tag === "SELECT", multi, form, readOnly, draggable, ownText, visible, sendsTo];
 }`;
 // Where an element sits, for Tab.dragTo: its box on the page and its parent (a sortable item dropped into another
 // list may keep its place on screen but not its parent).
@@ -1050,7 +1063,8 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string) =>
 
 type Meta = Partial<PublicMetadata>;
 /** Box FN's answer: left, top, width, height, covered by a layer, group, takes typed text, is a select, multi-line,
- * a form text area, read-only, marked to be dragged. */
+ * a form text area, read-only, marked to be dragged, shows its own text, its visible part, where a form control
+ * sends the page (when another origin). */
 type BoxInfo = [
   number,
   number,
@@ -1066,6 +1080,7 @@ type BoxInfo = [
   boolean,
   boolean?,
   (Box | null)?,
+  (string | null)?,
 ];
 /** The accessibility tree's nodes that are controls: a role Drex acts on or a focusable node, with a name unless its
  * role may go without one. */
@@ -1250,6 +1265,20 @@ export class Tab {
   declare mutations: Map<string, Mutation>;
   /** the origin of the page the tab shows (its main frame's last navigation), or "" before one */
   declare siteOrigin: string;
+  /** while a Loop read runs (sealedRead): the requests the tab made, each failed; null otherwise */
+  declare sealed: string[] | null;
+  /** while a Loop read runs: whether the page asked for a navigation, whether a page request was failed since, and
+   * whether a javascript: address was set (its code runs in the page's own world) */
+  declare sealNav: { asked: boolean; failed: boolean; scripted: boolean };
+  declare sealFrame: string;
+  /** Loop, once a read has run: which page (Document) requests may go when no read runs (guardNavigations) */
+  declare navGuard: ((url: string) => boolean) | null;
+  /** the main frame's id, for the guard: a sub-frame's page (a payment, captcha or sign-in frame) is the page's own */
+  declare mainFrame: string;
+  /** the page requests navGuard failed, and javascript: addresses asked for when it would have, for the run's log */
+  declare navBlocked: string[];
+  /** request ids of the page requests the guard let through, so the redirect hops they lead to follow */
+  declare letThrough: Set<string>;
   declare onEvent: (src: chrome.debugger.DebuggerSession, method: string, params?: object) => void;
   /** The run's Stop: once it fires, every command waiting for Chrome rejects with its reason. */
   declare signal: AbortSignal | undefined;
@@ -1275,8 +1304,66 @@ export class Tab {
     this.urls = new Map(); // request id -> "GET https://...", to name a failed request
     this.mutations = new Map();
     this.siteOrigin = "";
+    this.sealed = null;
+    this.sealNav = { asked: false, failed: false, scripted: false };
+    this.sealFrame = "";
+    this.navGuard = null;
+    this.mainFrame = "";
+    this.navBlocked = [];
+    this.letThrough = new Set();
     this.onEvent = (src, method, params) => {
       if (src.tabId !== this.id) return;
+      // only the main frame's navigation is waited for: a child frame's request is failed as it comes, and the wait would
+      // end in a Page.stopLoading that cuts the page's own loads short
+      if (
+        method === "Page.frameRequestedNavigation" &&
+        this.sealed &&
+        (params as { frameId?: string } | undefined)?.frameId === this.sealFrame
+      )
+        this.sealNav.asked = true;
+      if (
+        method === "Page.frameScheduledNavigation" &&
+        this.sealed &&
+        /^javascript:/i.test((params as { url?: string }).url ?? "")
+      )
+        this.sealNav.scripted = true;
+      // a javascript: address runs the page's own code and makes no request: it can't be failed, only told of
+      if (method === "Page.frameScheduledNavigation" && this.navGuard && !this.sealed) {
+        const { url } = need(params) as { url: string };
+        if (/^javascript:/i.test(url) && !this.navGuard(url)) this.noteBlocked(`ran ${url.slice(0, 120)}`);
+      }
+      if (method === "Page.javascriptDialogOpening" && this.sealed)
+        void this.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => undefined);
+      if (method === "Fetch.requestPaused") {
+        // only sealedRead pauses requests: while a read runs each is failed, and one paused just as the read ended goes on
+        const e = need(params) as Protocol.Fetch.RequestPausedEvent;
+        if (this.sealed) {
+          if (e.resourceType === "Document" && e.frameId === this.sealFrame) this.sealNav.failed = true;
+          if (this.sealed.length < MAX_SEALED) this.sealed.push(`${e.request.method} ${e.request.url.slice(0, 200)}`);
+          void this.send("Fetch.failRequest", { requestId: e.requestId, errorReason: "BlockedByClient" }).catch(
+            () => undefined,
+          );
+        } else if (
+          e.resourceType === "Document" &&
+          e.frameId === this.mainFrame &&
+          this.navGuard &&
+          !(this.letThrough.has(e.redirectedRequestId ?? "") || this.letThrough.has(e.requestId)) &&
+          !this.navGuard(e.request.url)
+        ) {
+          this.noteBlocked(`${e.request.method} ${e.request.url.slice(0, 200)}`);
+          void this.send("Fetch.failRequest", { requestId: e.requestId, errorReason: "BlockedByClient" }).catch(
+            () => undefined,
+          );
+        } else {
+          // a hop of a redirect follows the request it came from: one let through is let through to its end
+          if (e.resourceType === "Document" && e.frameId === this.mainFrame && this.navGuard) {
+            if (this.letThrough.size >= 64) this.letThrough.clear();
+            this.letThrough.add(e.requestId);
+          }
+          void this.send("Fetch.continueRequest", { requestId: e.requestId }).catch(() => undefined);
+        }
+        return;
+      }
       if (method === "Network.requestWillBeSent") {
         const e = need(params) as Protocol.Network.RequestWillBeSentEvent;
         if (!LONG_LIVED.has(e.type)) this.inflight.set(e.requestId, performance.now());
@@ -1439,6 +1526,107 @@ export class Tab {
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
+  }
+
+  /** Loop's read (src/loop/agent.ts evalRead). `work` runs code in a new isolated world of the main frame, whose context
+   * id it is given: the page's scripts can't see that code, nor can it reach the page's globals and functions. Every
+   * request the tab makes meanwhile is failed (Fetch), so a read sends nothing; the page's own requests of that moment
+   * fail too, and `blocked` names them all. If the read moved the main frame to another address, the tab is taken back
+   * to the one it had, and `moved` says where it had gone. Fetch that can't be turned on runs no code. */
+  async sealedRead<T>(
+    work: (contextId: number) => Promise<T>,
+  ): Promise<{ value: T; blocked: string[]; moved: string | null }> {
+    const address = (f: Protocol.Page.Frame) => f.url + (f.urlFragment ?? "");
+    const { frame } = (await this.send("Page.getFrameTree")).frameTree;
+    const { executionContextId } = await this.send("Page.createIsolatedWorld", {
+      frameId: frame.id,
+      worldName: `${READ_WORLD}-${++readWorlds}`,
+      grantUniveralAccess: false,
+    });
+    const blocked: string[] = [];
+    let value: T | undefined;
+    let failure: { error: unknown } | null = null;
+    let moved: string | null = null;
+    this.sealed = blocked;
+    this.sealFrame = frame.id;
+    this.sealNav = { asked: false, failed: false, scripted: false };
+    try {
+      await this.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+      // a read that throws (its context destroyed by a javascript: document) has run code too: the checks below still run
+      try {
+        value = await work(executionContextId);
+      } catch (error) {
+        failure = { error };
+      }
+      // what the code set going is sent just after it returns: a navigation it asked for (location = ...), a load a
+      // style recalculation starts. The seal stays a moment.
+      await sleep(SEAL_GRACE_MS);
+      // a read that asked for a navigation or moved the frame (an address, a hash, a javascript: address, whose code runs
+      // in the page's own world) may have left code waiting there or in its own world: none should, as the read's code
+      // can't reach location (READ_SEAL), but if one did, the page is swapped for about:blank with every request still
+      // failing, which ends all of it; the tab goes back below.
+      const now = (await this.send("Page.getFrameTree").catch(() => null))?.frameTree.frame;
+      if (this.sealNav.asked || this.sealNav.scripted || !(now?.id === frame.id && address(now) === address(frame))) {
+        moved = this.sealNav.scripted
+          ? "a javascript: address, whose code ran in the page"
+          : now && address(now) !== address(frame)
+            ? (now.unreachableUrl ?? address(now))
+            : "another address it asked for";
+        await this.clearPage();
+      }
+    } finally {
+      // the seal lifts only once Fetch is narrowed or off: events and replies keep their order, so a request paused
+      // under the "*" pattern reaches onEvent before this reply and is still failed
+      if (this.navGuard) await this.send("Fetch.enable", { patterns: [PAGE_REQUESTS] }).catch(() => undefined);
+      else await this.send("Fetch.disable").catch(() => undefined);
+      this.sealed = null;
+    }
+    if (moved) {
+      // taking the tab back goes to its own address; the guard stays on for any other page request meanwhile
+      const guard = this.navGuard;
+      const back = address(frame).split("#")[0];
+      if (guard) this.navGuard = (u) => u.split("#")[0] === back || guard(u);
+      try {
+        await this.navigate(address(frame));
+      } finally {
+        this.navGuard = guard;
+      }
+    }
+    if (failure) throw failure.error;
+    return { value: value as T, blocked, moved };
+  }
+
+  /** sealedRead: the main frame goes to about:blank, which ends the page's code and the read's. A beforeunload dialog is
+   * accepted (onEvent), and a navigation that doesn't answer is given up on. Throws if the frame isn't on about:blank in
+   * the end: the read must not pass for a clean one. */
+  async clearPage(): Promise<void> {
+    for (let tries = 0; tries < 2; tries++) {
+      await Promise.race([
+        this.send("Page.navigate", { url: "about:blank" }).catch(() => undefined),
+        sleep(SEAL_NAV_WAIT_MS),
+      ]);
+      for (let t = 0; t < SEAL_NAV_WAIT_MS; t += 50) {
+        const f = (await this.send("Page.getFrameTree").catch(() => null))?.frameTree.frame;
+        if (f?.url === "about:blank") return;
+        await sleep(50);
+      }
+      await this.send("Page.stopLoading").catch(() => undefined);
+    }
+    throw new Error("the page a read tampered with could not be cleared");
+  }
+
+  /** Loop: from now on, outside reads, a page (Document) request goes only if `allow` lets it, and is failed otherwise.
+   * A read's code can't let go of `location`, so code it left running could still navigate the tab after the read; the
+   * Loop agent lets through what an action or the person started, and the run's sites. */
+  async guardNavigations(allow: (url: string) => boolean): Promise<void> {
+    const first = !this.navGuard;
+    this.navGuard = allow;
+    this.mainFrame = (await this.send("Page.getFrameTree")).frameTree.frame.id;
+    if (first && !this.sealed) await this.send("Fetch.enable", { patterns: [PAGE_REQUESTS] });
+  }
+
+  noteBlocked(what: string): void {
+    if (this.navBlocked.length < MAX_SEALED) this.navBlocked.push(what);
   }
 
   /** Runs an expression in the page. What it returns is the page script's own business: callers cast it. */
@@ -1654,6 +1842,11 @@ export class Tab {
         ...(submenu ? { submenu } : {}),
         ...(meta.slider ? { slider: meta.slider } : {}),
         // only when set, to keep each element's JSON small
+        ...(role === "link" && typeof c.props.url === "string" && originOf(c.props.url)
+          ? { linkTo: originOf(c.props.url) }
+          : box[14]
+            ? { linkTo: box[14] }
+            : {}),
         ...(draggable ? { draggable } : {}),
         ...(readOnly ? { readOnly } : {}),
         ...(ownText ? { ownText } : {}),
@@ -1944,12 +2137,31 @@ export class Tab {
    * so a control that only shows on hover (a Delete over a photo) is what is found. null when the page can't say. */
   async pointTarget(x: number, y: number, { hover = true }: { hover?: boolean } = {}): Promise<PointTarget | null> {
     if (hover) await this.hover(x, y);
-    return (await this.eval(`(${pointTargetAt.toString()})(${x}, ${y})`)) as PointTarget | null;
+    const target = (await this.eval(`(${pointTargetAt.toString()})(${x}, ${y})`)) as PointTarget | null;
+    // the node itself, as the browser numbers it: another row's identical control moved under the point is another
+    // node. Read through the debugger, so nothing is left on the page for it to see or change. Elements that take no
+    // pointer events are skipped, as a click skips them: that leaves out Drex's own cursor, which sits on the point.
+    // The protocol takes whole pixels in page coordinates, not the viewport's: the point is rounded and the scroll added
+    const [sx, sy] = ((await this.eval("[scrollX, scrollY]").catch(() => null)) as [number, number] | null) ?? [0, 0];
+    const hit = (await this.send("DOM.getNodeForLocation", {
+      x: Math.round(x + sx),
+      y: Math.round(y + sy),
+      ignorePointerEventsNone: true,
+    }).catch(() => null)) as {
+      backendNodeId?: number;
+    } | null;
+    if (target && hit?.backendNodeId) target.key += `|${hit.backendNodeId}`;
+    return target;
+  }
+
+  /** What Enter in a field would submit, for the approval gate (enterTargetOf); null when the field is in no form. */
+  async enterTarget(node: number): Promise<EnterTarget | null> {
+    return (await this.on(node, enterTargetOf.toString())) as EnterTarget | null;
   }
 
   /** Bounded real browser gestures. Coordinates are CSS pixels of the original viewport. */
   async gesture(spec: GestureSpec | null | undefined): Promise<GestureResult> {
-    const kinds = new Set(["hover", "double_click", "drag", "keychord"]);
+    const kinds = new Set(["hover", "double_click", "drag", "keychord", "path"]);
     if (!spec || !kinds.has(spec.kind)) throw new Error("Unknown browser gesture");
     this.inputAt = performance.now();
     if (spec.kind === "keychord") {
@@ -2080,6 +2292,16 @@ export class Tab {
       return { kind: spec.kind, key: spec.key, modifiers, released: true };
     }
     const { w, h } = await this.viewport();
+    if (spec.kind === "path") {
+      // pointerPath: only the agent builds one, and only when the switch is on (the helper's schema offers it then)
+      if ((spec.modifiers as { length?: unknown } | null | undefined)?.length)
+        throw new Error("Pointer gesture modifiers are not supported");
+      const points = samplePath(spec.path, { w, h }); // validated before any event is sent
+      const first = at(points, 0),
+        last = at(points, points.length - 1);
+      await this.pointerPath(points);
+      return { kind: "path", x: first.x, y: first.y, endX: last.x, endY: last.y, steps: points.length, released: true };
+    }
     const valid = (x: number | undefined, y: number | undefined) =>
       x !== undefined &&
       y !== undefined &&
@@ -2155,9 +2377,37 @@ export class Tab {
   /** Press at (x0, y0), move to (x1, y1) in 12 steps with the button held, release there; the button is released
    * whatever fails on the way. */
   private async pointerDrag(x0: number, y0: number, x1: number, y1: number): Promise<void> {
-    let x = x0,
-      y = y0,
-      pressed = false;
+    const points: [number, number][] = [[x0, y0]];
+    for (let i = 1; i <= 12; i++) points.push([x0 + ((x1 - x0) * i) / 12, y0 + ((y1 - y0) * i) / 12]);
+    await this.holdAndMove(points, 25);
+  }
+
+  /** pointerPath: the pointer goes to the path's first point, presses once, follows the rest with the button held and
+   * releases at the last one; the button is released whatever fails on the way. */
+  private async pointerPath(points: { x: number; y: number }[]): Promise<void> {
+    const first = points[0];
+    if (!first) throw new Error("A pointer path needs points");
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: first.x, y: first.y, buttons: 0 });
+    await this.holdAndMove(
+      points.map((p): [number, number] => [p.x, p.y]),
+      12,
+    );
+  }
+
+  /** Press at the first point, move through the others with the button held (waiting `pause` ms after each), release
+   * at the last; the one place a drag's button is pressed and released, even when a move fails. */
+  private async holdAndMove(points: [number, number][], pause: number): Promise<void> {
+    let [x, y] = at(points, 0);
+    let pressed = false;
+    const release = () =>
+      this.send("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x,
+        y,
+        button: "left",
+        buttons: 0,
+        clickCount: 1,
+      });
     try {
       pressed = true;
       await this.send("Input.dispatchMouseEvent", {
@@ -2168,31 +2418,15 @@ export class Tab {
         buttons: 1,
         clickCount: 1,
       });
-      for (let i = 1; i <= 12; i++) {
-        x = x0 + ((x1 - x0) * i) / 12;
-        y = y0 + ((y1 - y0) * i) / 12;
+      for (const p of points.slice(1)) {
+        [x, y] = p;
         await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "left", buttons: 1 });
-        await sleep(25);
+        await sleep(pause);
       }
-      await this.send("Input.dispatchMouseEvent", {
-        type: "mouseReleased",
-        x,
-        y,
-        button: "left",
-        buttons: 0,
-        clickCount: 1,
-      });
+      await release();
       pressed = false;
     } finally {
-      if (pressed)
-        await this.send("Input.dispatchMouseEvent", {
-          type: "mouseReleased",
-          x,
-          y,
-          button: "left",
-          buttons: 0,
-          clickCount: 1,
-        });
+      if (pressed) await release();
     }
   }
 
@@ -2566,6 +2800,43 @@ export class Tab {
     ).catch(() => false);
     if (done) this.inputAt = performance.now();
     return done === true;
+  }
+
+  /** Where the focused control (the cursor) sends the page, when that is another origin (offOriginTarget): null for none. */
+  async focusedFormTarget(): Promise<string | null> {
+    // the cursor can be in an open shadow root or in a same-origin frame (a srcdoc form the page planted); the check runs in that frame's realm
+    const to = await this.eval(
+      `(() => { let w = window, e = document.activeElement;
+        for (;;) {
+          if (e && e.shadowRoot && e.shadowRoot.activeElement) { e = e.shadowRoot.activeElement; continue; }
+          let d = null;
+          if (e && (e.tagName === "IFRAME" || e.tagName === "FRAME")) try { d = e.contentDocument; } catch { d = null; }
+          if (!d || !d.activeElement) break;
+          w = e.contentWindow; e = d.activeElement;
+        }
+        const check = (${offOriginTarget.toString()});
+        let to = null;
+        if (e) try { to = w === window ? check(e) : w.eval("(" + check.toString() + ")")(e); } catch { to = null; }
+        return to || (!e || e.tagName === "BODY" || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.tagName) ? false : null); })()`,
+    ).catch(() => null);
+    if (typeof to === "string") return to;
+    if (to === false) return null; // a control that cannot host a closed shadow root: nothing more to find
+    // a focused control inside a closed shadow root shows as its host to the page; the accessibility tree names it
+    const ax = await this.send("Accessibility.getFullAXTree").catch(() => null);
+    for (const n of ax?.nodes ?? []) {
+      if (
+        n.ignored ||
+        !n.backendDOMNodeId ||
+        !n.properties?.some((p) => p.name === "focused" && p.value.value === true)
+      )
+        continue;
+      const at = await this.on(
+        n.backendDOMNodeId,
+        `function () { return (${offOriginTarget.toString()})(this); }`,
+      ).catch(() => null);
+      if (typeof at === "string") return at;
+    }
+    return null;
   }
 
   async setValue(node: number, value: unknown): Promise<SliderResult> {

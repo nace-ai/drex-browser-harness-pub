@@ -14,7 +14,7 @@ credentials and infrastructure; this page describes what it measures so the numb
 
 Three agents ran the same tasks on the same machine on 30 October 2026, all with the same LLM, Claude Haiku 5.5:
 
-- **Drex Browser Use, Loop mode** (0.1.6, built with `DREX_MODE=loop`): the LLM holds the task and decides each step;
+- **Drex Browser Use, Loop mode** (0.1.6 for the numbers below; the runner's default from 0.1.7; built with `DREX_MODE=loop`): the LLM holds the task and decides each step;
   Drex Max carries the steps out.
 - **Drex Browser Use, default mode** (as in 0.1.5; 0.1.6 doesn't change it): Drex Max takes every action, the LLM
   plans, reads and checks.
@@ -100,7 +100,7 @@ How to read these numbers:
   (MiniWoB++), keeping both tries of a task together: two tries at one task are not two independent tasks.
 - **They are not the whole benchmark.** The new WebArena-Verified tasks come from two of its sites and almost all of
   them change something; tasks that only read, and the shop, are not in this set.
-- **Loop mode is experimental.** Release builds don't include it yet (see the [CHANGELOG](../CHANGELOG.md)).
+- **Loop mode ships in release builds from 0.1.7** and is the runner's default (see the [CHANGELOG](../CHANGELOG.md)). The tables above measured 0.1.6 on task sets its code was developed on.
 
 The README's benchmark image and table come from [`docs/assets/src/benchmarks.json`](assets/src/benchmarks.json).
 After changing it, render the images again with `node scripts/readme-assets.mjs`.

@@ -15,6 +15,7 @@ e2e/cases/
 docs/
 .worktrees/
 runner/extension/
+runner/extension-loop/
 
 runner/protocol/
 runner/build-info.json

@@ -11,6 +11,7 @@ export default defineConfig([
   globalIgnores([
     "dist/",
     "runner/extension/",
+    "runner/extension-loop/",
     ".worker-releases/",
     "runs/",
     "eval/.cache/",

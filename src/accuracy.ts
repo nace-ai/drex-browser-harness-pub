@@ -40,6 +40,11 @@
 //              selected text in an editor); without them a text-editor task could only click an untagged toolbar
 // topNStop     (off unless named) a request for the N top items of a list ("the 5 most recent orders") reads the first
 //              N qualifying rows of the list proven in that order, and only their details, not the whole list
+// pointerPath  (off unless named) the helper may draw one continuous pointer stroke (gesture kind "path") that a
+//              straight drag cannot make: a polyline of points, or an ellipse or arc by centre, radii and angles read off
+//              the screenshot, expanded in code into at most 128 samples (src/gesture-path.ts). The browser moves to the
+//              first point, presses once, follows the rest with the button held and always releases. A path that is not
+//              finite numbers, leaves the page or has too many points is refused before any event is sent
 import { parseCost } from "./cost.ts";
 
 declare const __DREX_ACC__: string | undefined;

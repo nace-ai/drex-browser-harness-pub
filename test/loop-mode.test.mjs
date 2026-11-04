@@ -3,10 +3,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { test } from "node:test";
 import { build } from "esbuild";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { builtMode, modeProblems } from "../scripts/check-release.mjs";
 import { MODE, loopMode } from "../src/mode.ts";
 
 test("the default build has no run mode: MODE is empty and the agent runs", () => {
@@ -33,7 +34,8 @@ test("a build defined with DREX_MODE=loop runs the loop", async () => {
   }
 });
 
-// build.mjs judges its mode before it touches anything, so a build it refuses leaves dist/ and runner/extension/ as they were
+// build.mjs judges its mode before it touches anything, so a build it refuses leaves dist/ and the runner's
+// extension/ and extension-loop/ as they were
 const root = fileURLToPath(new URL("..", import.meta.url));
 const tried = (mode, ...args) =>
   spawnSync(process.execPath, ["build.mjs", ...args], {
@@ -56,21 +58,67 @@ test("a build refuses a DREX_MODE that is neither empty nor loop, and names it",
   assert.equal(stamp(), before); // dist/ was not rebuilt
 });
 
-test("a release build refuses the loop mode, which is for evals until its read sandbox lands", () => {
-  // CI builds a release before the tests run, so the file may be there: the refused build must leave it as it was
-  const file = join(root, "runner", "extension", "background.js");
-  const exists = existsSync(file);
-  const mtime = stamp(file);
+test("a release build builds both modes, so it refuses a DREX_MODE that would be ignored, and builds nothing", () => {
+  // CI builds a release before the tests run, so the files may be there: the refused build must leave them as they were
+  const files = ["extension", "extension-loop"].map((d) => join(root, "runner", d, "background.js"));
+  const before = files.map((f) => [existsSync(f), stamp(f)]);
   const r = tried("loop", "--release");
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /loop mode is eval-only/);
-  assert.match(r.stderr, /--release/);
-  assert.equal(
-    existsSync(file),
-    exists,
-    "a refused release build changed whether runner/extension/background.js exists",
+  assert.match(r.stderr, /--release builds both modes/);
+  assert.match(r.stderr, /unset DREX_MODE/);
+  assert.ok(!/^built /m.test(r.stdout), r.stdout);
+  assert.deepEqual(
+    files.map((f) => [existsSync(f), stamp(f)]),
+    before,
+    "a refused release build changed runner/extension or runner/extension-loop",
   );
-  assert.equal(stamp(file), mtime, "a refused release build rewrote runner/extension/background.js");
+});
+
+// the mode a release holds is read from the built bundle, so the assertion is tested on bundles esbuild really emits
+async function bundledMode(define) {
+  const dir = await mkdtemp(join(tmpdir(), "drex-built-"));
+  await build({
+    entryPoints: [fileURLToPath(new URL("../src/mode.ts", import.meta.url))],
+    outfile: join(dir, "background.js"),
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    define,
+    logLevel: "error",
+  });
+  return dir;
+}
+
+test("the release check reads the mode out of the built bundle, and says which a release holds", async (t) => {
+  const plain = await bundledMode({ __DREX_MODE__: '""' });
+  const loop = await bundledMode({ __DREX_MODE__: '"loop"' });
+  const undef = await bundledMode({});
+  t.after(() => Promise.all([plain, loop, undef].map((d) => rm(d, { recursive: true, force: true }))));
+  assert.equal(builtMode(plain), "");
+  assert.equal(builtMode(undef), ""); // a bundle built without the define is the default agent
+  assert.equal(builtMode(loop), "loop");
+  assert.deepEqual(modeProblems(plain, ""), []);
+  assert.deepEqual(modeProblems(loop, "loop"), []);
+  // each output must be the mode it is named for: a loop bundle in the default's place (or the reverse) is refused
+  assert.match(modeProblems(loop, "")[0], /should hold the default mode, but holds the loop mode/);
+  assert.match(modeProblems(plain, "loop")[0], /should hold the loop mode, but holds the default mode/);
+  assert.ok(modeProblems(loop, "")[0].startsWith(loop));
+});
+
+test("the release check refuses an output whose mode it can't read", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "drex-built-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  assert.equal(builtMode(dir), null); // no background.js
+  assert.match(modeProblems(dir, "")[0], /holds no readable run mode/);
+  await writeFile(join(dir, "background.js"), "console.log(1);\n"); // no src/mode.ts section
+  assert.equal(builtMode(dir), null);
+  await writeFile(join(dir, "background.js"), "// src/mode.ts\nvar MODE = 7;\n\n// src/other.ts\n");
+  assert.equal(builtMode(dir), null); // not a string
+  await writeFile(
+    join(dir, "background.js"),
+    "// src/mode.ts\nvar MODE = true ? 'loop' : '';\n\n// src/other.ts\nvar MODE = '';\n",
+  );
+  assert.equal(builtMode(dir), "loop"); // only its own section counts
 });
 
 // Exercise the bundled worker through the panel boundary. The optional web tab reaches agent-specific behavior,

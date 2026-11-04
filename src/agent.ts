@@ -17,6 +17,7 @@ import { runCostCap } from "./models.ts";
 import { costOn, costValue, drexImages, moveOptions, movesTask } from "./cost.ts";
 import { visualQuestion } from "./context.ts";
 import { CHANGE_RULE, accOn } from "./accuracy.ts";
+import { pathFromHelper } from "./gesture-path.ts";
 import type { Drex } from "./drex.ts";
 import type { LLM } from "./llm.ts";
 import type {
@@ -87,6 +88,9 @@ async function readPoint(tab: Tab, x: number, y: number, opts?: { hover?: boolea
   }
 }
 const START_PAGE = "https://www.google.com/";
+/** A question's reply when no one answers it: what the task's wording says goes, read the most natural way. */
+export const NO_ONE_TO_ASK =
+  "No one is available to answer. Take the most natural reading of the task that keeps every condition, and go on.";
 /** Tabs the agent opens are http(s) only, as Tab.navigate's: chrome.tabs bypasses the runner's page routing, so a
  * planned file:// (or chrome://, data:) URL would otherwise let the debugger read local files. */
 function webOnly(url: string): void {
@@ -130,7 +134,7 @@ const COPY_HINT = /\b(copy|paste|duplicate)\b/i; // the copyMove switch: the ste
 // the dragTo switch: the step or task speaks of dragging or moving things (Drex's drag move only; the helper's drag_to
 // by tags needs the switch alone). A drag library marks every card, block or row draggable, so without the hint each
 // would add a move to every screen of a board, an editor or a file manager
-const DRAG_HINT = /\b(drag|drop|move|reorder|sort|rearrange|arrange)\b/i;
+export const DRAG_HINT = /\b(drag|drop|move|reorder|sort|rearrange|arrange)\b/i;
 // no plan: what the LLM is told when it checks whether the user's task is finished
 // no plan: what the LLM is told when Drex is about to make a click that can't be undone (Place order, Pay, Send...)
 const RISKY_CHECK =
@@ -292,6 +296,8 @@ const candidatesOf = (els: PageEl[]) =>
     grid: e.grid,
   }));
 
+const CURSOR_OFF_SITE = "The field under the cursor is in a form that sends to a site the task didn't name";
+
 export class Agent implements MacroHost {
   declare windowId: number | undefined;
   declare wantReport: { expect?: string } | null;
@@ -312,9 +318,13 @@ export class Agent implements MacroHost {
   declare abort: AbortController;
   declare tabs: Map<number, Tab>;
   declare totals: Totals;
-  declare allowedClicks: Set<string | undefined>;
+  declare allowedClicks: Set<string>;
   declare gesturesAllowed: boolean;
   declare trusted: Set<string>;
+  /** the label of the one link a click may take though it leaves the run's sites (see onSite); "" for none */
+  leaveVia = "";
+  /** the start page's origin when nothing else made it a site of the run: it may be opened, but is no site to stay on */
+  startPageOrigin = "";
   declare namedUrls: Set<string>;
   /** deadUrls: the addresses the plan guessed that showed a not-found page; no step opens them again */
   declare deadUrls: Set<string>;
@@ -349,6 +359,7 @@ export class Agent implements MacroHost {
   declare index: number;
   declare groupId: number | undefined;
   declare pendingAsk: ((ok: UserAnswer) => void) | null | undefined;
+  declare askKind: string | null | undefined;
   declare endReport: EndReport | null;
   declare fillObjections: Map<string, number>;
   declare collectionTaskContract: { task: string; contract: CollectionContract } | null;
@@ -444,7 +455,7 @@ export class Agent implements MacroHost {
       seconds: 0,
       waitSeconds: 0,
     };
-    this.allowedClicks = new Set(); // risky controls you allowed for the rest of the task
+    this.allowedClicks = new Set(); // risky controls you allowed for the rest of the task (L.approvalKey)
     this.gesturesAllowed = false; // you allowed point clicks and gestures for the rest of the task
     this.trusted = new Set(); // origins of the user's open tabs and the first plan's URLs: replans may only open these
     this.namedUrls = new Set(); // the first plan's URLs (the planner saw only the task)
@@ -599,10 +610,13 @@ export class Agent implements MacroHost {
       }
       this.plan = plan;
       // the sites this run may open by itself: where the user is, and what the planner (which saw only the task) named
-      for (const u of [...this.startTabs.map((t) => t.url), ...this.plan.steps.map((s) => s.open_url), START_PAGE]) {
+      for (const u of [...this.startTabs.map((t) => t.url), ...this.plan.steps.map((s) => s.open_url)]) {
         const o = L.originOf(u ?? "");
         if (o) this.trusted.add(o);
       }
+      const startPage = L.originOf(START_PAGE);
+      this.startPageOrigin = startPage && !this.trusted.has(startPage) ? startPage : "";
+      if (startPage) this.trusted.add(startPage);
       this.namedUrls = new Set(this.plan.steps.map((s) => s.open_url).filter((u): u is string => !!u));
       // A planned run ends with an evidence-backed answer to the whole task. Not with LLM planning off (the LLM only
       // types and checks) or with a fixed plan (a replay of a real run's plan).
@@ -1048,7 +1062,13 @@ export class Agent implements MacroHost {
         ));
         await tabsCall(() => chrome.tabGroups.update(groupId, { title: "Drex", color: "blue" }));
       } else {
-        await tabsCall(() => chrome.tabs.group({ tabIds: [tabId], groupId: this.groupId }));
+        try {
+          await tabsCall(() => chrome.tabs.group({ tabIds: [tabId], groupId: this.groupId }));
+        } catch {
+          // Chrome deletes a group once its last tab closes (a Loop run's reading tab): make the group again
+          this.groupId = undefined;
+          await this.group(tabId);
+        }
       }
     } catch {}
   }
@@ -1554,6 +1574,49 @@ export class Agent implements MacroHost {
       this.log("llm_error", { purpose, error: describeError(error) });
       throw error;
     }
+  }
+
+  /** The second question of a drag: which of the targets Drex drops the chosen element onto, as the move to make. Each
+   * target says where it is from the dragged element (its grid cell, or direction and distance): by name alone, "Drag
+   * Jinny to the center." found the centre cell in 3 of 8 runs. Throws when the choice is none of the targets. A caller
+   * that wants to know how sure Drex is of the target passes `sure`, which gets its probability in `p`; browse() does
+   * not, and drops where Drex chose. */
+  async dropMove(
+    state: string,
+    scr: Looked,
+    source: LocatedEl,
+    targets: LocatedEl[],
+    sure?: { p?: number },
+  ): Promise<MoveOption & { kind: "drag_to" }> {
+    const criteria = Object.fromEntries(targets.map((e) => [e.label, L.dropTargetDescription(source, e, scr.els)]));
+    const q: Questions = {
+      to: { type: "choice", instructions: L.dropInstructions(source, scr.els), criteria },
+    };
+    const r2 = await this.drexCall(
+      `${state}\n\nYOUR MOVE: drag ${source.label} (${L.describe(source)}).`,
+      q,
+      drexImages(this.task, scr, scr.img1, scr.img2),
+    );
+    const dropped = pick(r2, "to");
+    const to = need(
+      targets.find((e) => e.label === dropped.choice),
+      "The element Drex drops it onto",
+    );
+    // recorded like Drex's move choice: what it was offered, what it chose and how sure it was
+    const ranked = Object.entries(dropped.probs).sort((a, b) => b[1] - a[1]);
+    this.log("decision", {
+      who: "drex",
+      sub: "drop",
+      choice: to.label,
+      p: dropped.p === undefined ? null : +dropped.p.toFixed(3),
+      ms: Math.round(r2.ms),
+      usd: r2.usd,
+      top: ranked.slice(0, 3).map(([k, v]) => [k, +v.toFixed(3)]),
+      topText: ranked.slice(0, 3).map(([k, v]) => [criteria[k], +v.toFixed(3)]),
+      options: targets.length,
+    });
+    if (sure) sure.p = dropped.p;
+    return { kind: "drag_to", el: source, to };
   }
 
   async drexCall(state: string, questions: Questions, images: string[]): Promise<DrexReply> {
@@ -2063,8 +2126,8 @@ export class Agent implements MacroHost {
           : null;
       const { opts, acts } = L.withoutMoves(
         L.buildOptions({
-          els: scr.els,
-          off: scr.off,
+          els: this.onSite(scr.els, scr.info.url),
+          off: this.onSite(scr.off, scr.info.url),
           texts,
           tabs: otherTabs,
           direct: !this.planning,
@@ -2417,42 +2480,11 @@ export class Agent implements MacroHost {
         ).text;
       }
       if (act.kind === "drag_pick") {
-        // Drex chose what to drag; where it goes is one more choice, over every other tagged element (no canvas or
-        // picture) it was not already dropped onto in vain (all of them when the drag is taken although nothing else
-        // makes progress either; L.buildOptions offers a drag only with a drop target on screen). Each target says
-        // where it is from the dragged element (its grid cell, or direction and distance): by name alone, "Drag Jinny
-        // to the center." found the centre cell in 3 of 8 runs.
-        const source = act.el;
-        const live = drops(source);
-        const targets = live.length ? live : L.dropTargets(scr.els, source);
-        const criteria = Object.fromEntries(targets.map((e) => [e.label, L.dropTargetDescription(source, e, scr.els)]));
-        const q: Questions = {
-          to: { type: "choice", instructions: L.dropInstructions(source, scr.els), criteria },
-        };
-        const r2 = await this.drexCall(
-          `${state}\n\nYOUR MOVE: drag ${source.label} (${L.describe(source)}).`,
-          q,
-          drexImages(this.task, scr, scr.img1, scr.img2),
-        );
-        const dropped = pick(r2, "to");
-        const to = need(
-          targets.find((e) => e.label === dropped.choice),
-          "The element Drex drops it onto",
-        );
-        // recorded like Drex's move choice: what it was offered, what it chose and how sure it was
-        const ranked = Object.entries(dropped.probs).sort((a, b) => b[1] - a[1]);
-        this.log("decision", {
-          who: "drex",
-          sub: "drop",
-          choice: to.label,
-          p: dropped.p === undefined ? null : +dropped.p.toFixed(3),
-          ms: Math.round(r2.ms),
-          usd: r2.usd,
-          top: ranked.slice(0, 3).map(([k, v]) => [k, +v.toFixed(3)]),
-          topText: ranked.slice(0, 3).map(([k, v]) => [criteria[k], +v.toFixed(3)]),
-          options: targets.length,
-        });
-        act = { kind: "drag_to", el: source, to };
+        // Drex chose what to drag; where it goes is one more choice (dropMove), over the targets it was not already
+        // dropped onto in vain (all of them when the drag is taken although nothing else makes progress either;
+        // L.buildOptions offers a drag only with a drop target on screen)
+        const live = drops(act.el);
+        act = await this.dropMove(state, scr, act.el, live.length ? live : L.dropTargets(scr.els, act.el));
       }
       if (act.kind === "copy_pick") {
         // Drex chose whose text to copy; the field it goes into is one more choice, over the other editable fields
@@ -2576,6 +2608,22 @@ export class Agent implements MacroHost {
     const memoryKey = L.stableState(scr.info, scr.els);
     const progressKey = `${memoryKey}\n${act.kind === "gesture" ? JSON.stringify(act.gesture) : L.actionIdentity(act, text)}`;
     const noProgress = () => this.noProgress.set(progressKey, (this.noProgress.get(progressKey) ?? 0) + 1);
+    // a click's target that moved or went away since the screen it was chosen on (L.targetStale)
+    const targetGone = async () => {
+      const now = await tab.elements().catch(() => null);
+      return !now || L.targetStale(act.el, now);
+    };
+    const staleTarget = (verb: string, wait: string) => {
+      this.afterShot = null;
+      noProgress();
+      history.push({
+        what: `did not make ${what}`,
+        changed: false,
+        note: `its target moved or went away while it was ${verb}`,
+      });
+      this.log("blocked", { what, reason: `the target moved during ${wait}` });
+      return { blocked: "stale target" };
+    };
     if ((this.noProgress.get(progressKey) ?? 0) >= 2) {
       this.log("blocked", { what, reason: "same action twice produced no semantic progress in this state" });
       history.push({ what, changed: false, note: "blocked: repeated action without progress" });
@@ -2583,6 +2631,7 @@ export class Agent implements MacroHost {
     }
     const risky = L.isRisky(act);
     let pointKey = ""; // a point click let through by what was under it: the click goes ahead only if that is still there
+    let approvedPoint = ""; // a risky point click you approved: it goes ahead only on the same control, still there
     let readinessEvidence: Record<string, unknown> | null = null;
     // Before a click that can't be undone (the same clicks that ask for your approval), the LLM checks that the
     // screen holds what the task asks for. Ordinary moves get no check. Inside a bulk action you approved, none.
@@ -2640,18 +2689,7 @@ export class Agent implements MacroHost {
         return { blocked: d.evidence };
       }
       // the check took a few seconds: the click goes ahead only if its target is still where it was
-      const now = await tab.elements().catch(() => null);
-      if (!now || L.targetStale(act.el, now)) {
-        this.afterShot = null;
-        noProgress();
-        history.push({
-          what: `did not make ${what}`,
-          changed: false,
-          note: "its target moved or went away while it was checked",
-        });
-        this.log("blocked", { what, reason: "the target moved during the readiness check" });
-        return { blocked: "stale target" };
-      }
+      if (await targetGone()) return staleTarget("checked", "the readiness check");
       readinessEvidence = {
         action: what,
         url: scr.info.url,
@@ -2663,14 +2701,18 @@ export class Agent implements MacroHost {
     }
     if (risky) {
       const el = need(act.el, "The click's control");
+      const key = L.approvalKey(el, scr.info.url);
       if (!this.approvals) this.log("skipped", { what: `clicked ${L.describe(el)}` });
-      else if (!this.batchApproved && !this.allowedClicks.has(el.name)) {
+      else if (!this.batchApproved && !this.allowedClicks.has(key)) {
         const ok = await this.askApproval(
           `Drex wants to click ${L.describe(el)}. That may send, pay, post or delete something. Go ahead?`,
           scr.img1,
         );
         if (!ok) throw new Stopped(`You declined: ${L.describe(el)}.`);
-        if (ok === "always") this.allowedClicks.add(el.name);
+        if (ok === "always") this.allowedClicks.add(key);
+        // you may have taken minutes to decide: the click lands on the control you approved, where it was when you were
+        // asked, or isn't made (a list that reordered meanwhile puts another row's Delete under the old place)
+        if (await targetGone()) return staleTarget("approved", "the approval");
       }
     } else if (L.isRiskyGesture(act)) {
       // a gesture has no control name to check: with approvals on, it is asked about once per task. A point click is
@@ -2700,27 +2742,56 @@ export class Agent implements MacroHost {
           this.log("gate", { what: label, decision: "no approval needed", role: "slider" });
         }
       }
-      if (act.kind === "point" && this.approvals && !this.batchApproved && !this.gesturesAllowed) {
-        const target = await readPoint(tab, act.x, act.y);
-        const risk = L.pointRisk(target);
-        if (target)
-          label = `click a point on the screen (on ${target.role || "an element"} '${target.names[0] ?? ""}')`;
+      // a point is read even after "always" for gestures: that covers what has no name to check, not a point that
+      // lands on a Delete or a Pay, which asks as a click on that control would (and "always" there is that control's)
+      let pointTarget: PointTarget | null = null;
+      if (act.kind === "point" && this.approvals && !this.batchApproved) {
+        pointTarget = await readPoint(tab, act.x, act.y);
+        const risk = L.pointRisk(pointTarget);
+        if (pointTarget)
+          label = `click a point on the screen (on ${pointTarget.role || "an element"} '${pointTarget.names[0] ?? ""}')`;
         if (risk) why = `It may send, pay or delete something: ${risk}.`;
         else {
           ask = false;
-          pointKey = need(target, "The point's target").key;
-          this.log("gate", { what: label, decision: "no approval needed", role: target?.role });
+          pointKey = need(pointTarget, "The point's target").key;
+          this.log("gate", { what: label, decision: "no approval needed", role: pointTarget?.role });
         }
       }
+      // a control with no name to tell it from the others ("×", an unnamed icon) is not remembered: "always" there
+      // would cover every such control on the site, so it asks each time
+      // (named by the control that takes the click, not by an icon or badge inside it)
+      // (a point under no control has no name of its own: the text of its card is not its name)
+      const pointName = pointTarget?.own ? (pointTarget.own[0] ?? "") : (pointTarget?.names[0] ?? "");
+      // (a point in an embedded frame, or on a card or password page with no control under it, is not a nameless
+      // control: "always" for gestures still covers it, as before)
+      const noControl =
+        !!pointTarget &&
+        (pointTarget.frame ||
+          (pointTarget.payment && !pointTarget.own?.length && !pointTarget.overlay && !pointTarget.marks.length));
+      const unnamedPoint =
+        !!pointTarget && ask && !noControl && (!/[\p{L}\p{N}]/u.test(pointName) || /^[x×✕✖]$/i.test(pointName));
+      const controlKey =
+        pointTarget && ask && !unnamedPoint && !noControl
+          ? L.approvalKey({ role: pointTarget.role, name: pointName }, scr.info.url)
+          : "";
       if (!this.approvals) this.log("skipped", { what: label });
-      else if (ask && !this.batchApproved && !this.gesturesAllowed) {
+      else if (
+        ask &&
+        !this.batchApproved &&
+        (controlKey ? !this.allowedClicks.has(controlKey) : unnamedPoint || !this.gesturesAllowed)
+      ) {
         const ok = await this.askApproval(
           `${act.kind === "drag_to" && who === "drex" ? "Drex" : "Drex's helper"} wants to ${label}${note ? ` (${note.slice(0, 200)})` : ""}. ${why} Go ahead?`,
           scr.img1,
         );
         if (!ok) throw new Stopped(`You declined: ${label}.`);
-        if (ok === "always") this.gesturesAllowed = true;
+        if (ok === "always") {
+          if (controlKey) this.allowedClicks.add(controlKey);
+          else if (!unnamedPoint) this.gesturesAllowed = true;
+        }
       }
+      // approved now or earlier ("always"): the click goes ahead only on this control, still under the point
+      if (this.approvals && !this.batchApproved && ask && pointTarget) approvedPoint = pointTarget.key;
     }
     if (!this.actionMemory.has(memoryKey)) this.actionMemory.set(memoryKey, new Map());
     const memory = need(this.actionMemory.get(memoryKey), "The moves made on this screen");
@@ -2739,6 +2810,19 @@ export class Agent implements MacroHost {
     const moveStart = performance.now(); // confirmedChanges: the site requests from here on are this move's
     this.acting = true;
     try {
+      if (approvedPoint && act.kind === "point") {
+        // the control you approved is the one clicked: anything else under the point now (it moved, the page
+        // changed while you decided) is not. The mouse goes back to the point first: answering moved it away, and a
+        // control that shows on hover (a Delete over a photo) is there only with the mouse on it
+        const now = await readPoint(tab, act.x, act.y);
+        if (now?.key !== approvedPoint) {
+          this.afterShot = null;
+          noProgress();
+          history.push({ what, changed: false, note: "what was under the point changed while it was approved" });
+          this.log("blocked", { what, reason: "the target under the point changed after the approval" });
+          return { blocked: "stale target" };
+        }
+      }
       // between the gate and the click the page may have changed under the point: what is there now is checked again
       // (the mouse is already there), and a click that would land on something risky is not made. The risk is read
       // afresh even when the target looks the same: a "Continue" in the same place may now submit a payment form
@@ -2971,6 +3055,10 @@ export class Agent implements MacroHost {
               )
             )
               throw error;
+            // a click that asks for approval is made on the control it was approved for: another with the same name
+            // (a second row's Delete) is not swapped in for it
+            if (L.isRisky(act))
+              return { dispatched: false, reason: "The approved control went away; another with its name is not used" };
             const fresh: { els?: OnScreenEl[]; off?: OffScreenEl[] } =
               attempt === 0 ? await tab.elements() : { els: [] };
             const name = (act.el.name || act.el.text || "").trim();
@@ -3014,6 +3102,7 @@ export class Agent implements MacroHost {
         break;
       }
       case "type_cursor":
+        if (await this.cursorLeaves(tab)) return { dispatched: false, reason: CURSOR_OFF_SITE };
         // a date or time input at the cursor takes its value whole, as typeInto does
         if (await tab.setTemporalFocused(need(text, "The text to type"))) break;
         if (!(await tab.type(need(text, "The text to type")))) return { dispatched: false, reason: ONE_LINE_TABLE };
@@ -3033,6 +3122,8 @@ export class Agent implements MacroHost {
         await tab.scroll(act.down);
         break;
       case "key":
+        if (act.key === "Enter" && (await this.cursorLeaves(tab)))
+          return { dispatched: false, reason: CURSOR_OFF_SITE };
         await tab.key(act.key);
         break;
       case "back":
@@ -3315,6 +3406,7 @@ export class Agent implements MacroHost {
         replan: this.planning,
         finish: !this.planning,
         dragTo: accOn("dragTo"),
+        pointerPath: accOn("pointerPath"),
       }),
     );
     const d = r.json;
@@ -3354,6 +3446,11 @@ export class Agent implements MacroHost {
         if (!el || !to || el === to)
           throw new Error(`Invalid helper gesture: drag_to from '${spec.from}' onto '${spec.to}'`);
         return { act: { kind: "drag_to", el, to }, text: "", why: d.why };
+      }
+      if (spec?.kind === "path" && accOn("pointerPath")) {
+        // the stroke's lengths are in original-image pixels: converted once here, never again downstream
+        const path = pathFromHelper(spec.path, scale());
+        return { act: { kind: "gesture", gesture: { kind: "path", path } }, text: "", why: d.why };
       }
       if (
         !spec ||
@@ -3638,7 +3735,11 @@ export class Agent implements MacroHost {
     const tab = await this.currentTab();
     const before = new Set((await tab.items()).map((i) => i.key));
     const scr = await this.look(tab);
-    const { opts, acts } = L.buildOptions({ els: scr.els, off: scr.off, texts: [] });
+    const { opts, acts } = L.buildOptions({
+      els: this.onSite(scr.els, scr.info.url),
+      off: this.onSite(scr.off, scr.info.url),
+      texts: [],
+    });
     const goal =
       "Show the next page of this list: click its Older / Next page control, or scroll down if more items load as you scroll. If there is no next page (no such control, or it is disabled), choose 'step done'.";
     const images = drexImages(this.task, scr, scr.img1, scr.img2);
@@ -3677,14 +3778,20 @@ export class Agent implements MacroHost {
   // --- the user -----------------------------------------------------------------------------------------------------
   /** items: the list rows a batch action is about to touch, shown one per line. */
   async waitForUser(
-    kind: "approve" | "user",
+    kind: "approve" | "user" | "question",
     message: string,
     image?: string | null,
     items: string[] | null = null,
   ): Promise<UserAnswer> {
     // the person is at the coding agent, not at this panel: end the run and hand the question back
     if (this.wantReport)
-      throw new Handover(kind === "approve" ? `Needs approval before this action: ${message}` : message);
+      throw new Handover(
+        kind === "approve"
+          ? `Needs approval before this action: ${message}`
+          : kind === "question"
+            ? `Has a question for you: ${message}${items?.length ? ` (choices: ${items.join(" | ")})` : ""}`
+            : message,
+      );
     // unattended: no panel is open to answer; approvals still wait because the runner answers those itself
     if (this.unattended && kind === "user") throw new Handover(message);
     const t0 = performance.now();
@@ -3695,11 +3802,13 @@ export class Agent implements MacroHost {
     try {
       ok = await new Promise<UserAnswer>((resolve) => {
         this.pendingAsk = resolve;
+        this.askKind = kind;
         this.log("ask", { kind, message, image, items });
       });
     } finally {
       this.runBudget.resume();
       this.pendingAsk = null;
+      this.askKind = null;
       this.totals.waitSeconds += (performance.now() - t0) / 1000;
     }
     this.log("answer", { kind, ok });
@@ -3707,13 +3816,57 @@ export class Agent implements MacroHost {
     return ok;
   }
 
-  /** ok: false (stop), true or "once" (go ahead), "always" (go ahead for the rest of this task). */
+  /** ok: false (stop), true or "once" (go ahead), "always" (go ahead for the rest of this task), or a question's
+   * `{ reply }`. A reply never answers an approval: a stale question card must not approve an action. */
   answer(ok: UserAnswer): void {
+    if (typeof ok === "object" && this.askKind !== "question") return;
     if (this.pendingAsk) this.pendingAsk(ok);
+  }
+
+  /** The controls Drex may be offered: all but the links, and the submit buttons and fields of a form (form-target.ts),
+   * that leave the run's sites (L.offSite). A page can plant a link or a "verify your email" form to its own server, and
+   * an unsure Drex took each (evals h-redirect, h-signup); a site the task started on or named, and its
+   * subdomains, stay, and so do the links of the page it is on. */
+  /** Whether the field the cursor is in sends its form to a site the run may not leave (the focus Drex is not offered). */
+  async cursorLeaves(tab: Tab): Promise<boolean> {
+    const to = await tab.focusedFormTarget();
+    if (!to) return false;
+    const sites = new Set(this.trusted);
+    sites.delete(this.startPageOrigin);
+    const here = L.originOf((await tab.info(30000)).url);
+    if (here) sites.add(here);
+    return L.offSite({ linkTo: to }, sites) && !(this.leaveVia !== "" && this.leaveVia === to);
+  }
+
+  onSite<T extends PageEl>(els: T[] = [], page = ""): T[] {
+    const sites = new Set(this.trusted);
+    sites.delete(this.startPageOrigin);
+    // the page it is on is a site to stay on, so its own links stay though it was never trusted (a click made with
+    // approvals off, a redirect)
+    const here = L.originOf(page);
+    if (here) sites.add(here);
+    // a search engine's results go to other sites by nature: opening one is what a search step is for, as before
+    if (L.isSearchEngine(page)) return els;
+    return els.filter((e) => (this.leaveVia !== "" && e.label === this.leaveVia) || !L.offSite(e, sites));
   }
 
   askApproval(message: string, image: string): Promise<UserAnswer> {
     return this.waitForUser("approve", message, image);
+  }
+
+  /** A question for the person who gave the task, with the choices it offers (none: a reply in their own words). Their
+   * reply, or NO_ONE_TO_ASK when nobody is at the panel to answer (an unattended run, or a reply left empty). A coding
+   * agent's run ends with the question handed back, as a hand-over does; Stop stops the run. The run's clock stops
+   * while the person answers. */
+  async askQuestion(question: string, choices: string[]): Promise<string> {
+    if (this.unattended && !this.wantReport) {
+      // not an "ask" event: the panel would show a card nobody can answer
+      this.log("tab", { what: `asked, no one to answer: ${question}` });
+      return NO_ONE_TO_ASK;
+    }
+    const ok = await this.waitForUser("question", question, null, choices.length ? choices : null);
+    if (!ok) throw new Stopped("You stopped the run instead of answering its question.");
+    return (typeof ok === "object" && ok.reply.trim()) || NO_ONE_TO_ASK;
   }
 
   async askUser(message: string): Promise<void> {

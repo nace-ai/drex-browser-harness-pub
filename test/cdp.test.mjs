@@ -1061,3 +1061,126 @@ test("test_copyinto_appends_into_document_editor: a document-editor target gets 
   assert.ok(order.indexOf("caret") > order.indexOf("click") && order.indexOf("caret") < order.indexOf("insert"));
   assert.ok(!order.includes("clear"));
 });
+
+test("Tab.focusedFormTarget finds a focused control in a closed shadow root through the accessibility tree", async () => {
+  const tab = new Tab(7);
+  const sent = [];
+  tab.send = async (method, params = {}) => {
+    sent.push(method);
+    if (method === "Runtime.evaluate") return { result: { value: null } }; // the page sees only the closed root's host
+    if (method === "Accessibility.getFullAXTree")
+      return {
+        nodes: [
+          { backendDOMNodeId: 1, properties: [{ name: "focused", value: { value: false } }] },
+          { backendDOMNodeId: 2, properties: [{ name: "focused", value: { value: true } }] },
+        ],
+      };
+    if (method === "DOM.resolveNode") return { object: { objectId: `o${params.backendNodeId}` } };
+    if (method === "Runtime.callFunctionOn")
+      return { result: { value: params.objectId === "o2" ? "https://evil.example" : null } };
+    throw new Error(method);
+  };
+  assert.equal(await tab.focusedFormTarget(), "https://evil.example");
+});
+
+test("Tab.focusedFormTarget makes one call when the page's focus is no closed-root host", async () => {
+  const tab = new Tab(7);
+  const sent = [];
+  tab.send = async (method) => {
+    sent.push(method);
+    if (method === "Runtime.evaluate") return { result: { value: false } };
+    throw new Error(method);
+  };
+  assert.equal(await tab.focusedFormTarget(), null);
+  assert.deepEqual(sent, ["Runtime.evaluate"]);
+});
+
+// sealedRead: a read whose context a javascript: address destroyed throws, and the checks after the code still run
+test("sealedRead: a read that throws still swaps a javascript: page for about:blank, lifts the seal and takes the tab back", async () => {
+  const tab = new Tab(7);
+  const frame = { id: "F", url: "http://shop.test/p", urlFragment: "" };
+  const calls = [];
+  let swapped = false;
+  tab.send = async (method, params) => {
+    calls.push(method === "Page.navigate" ? `${method} ${params.url}` : method);
+    if (method === "Page.getFrameTree")
+      return { frameTree: { frame: swapped ? { ...frame, url: "about:blank" } : frame } };
+    if (method === "Page.navigate") swapped = true;
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 3 };
+    return {};
+  };
+  const back = [];
+  tab.navigate = async (url) => back.push(url);
+  await assert.rejects(
+    tab.sealedRead(async () => {
+      feed(tab, "Page.frameScheduledNavigation", { frameId: "F", url: "javascript:1" });
+      throw new Error("Execution context was destroyed.");
+    }),
+    /Execution context was destroyed/,
+  );
+  assert.ok(calls.includes("Page.navigate about:blank"), calls.join());
+  assert.ok(calls.lastIndexOf("Fetch.disable") > calls.indexOf("Page.navigate about:blank"), calls.join());
+  assert.deepEqual(back, ["http://shop.test/p"]);
+  assert.equal(tab.sealed, null);
+});
+
+// Tab.onEvent's Fetch.requestPaused: while a read runs every request fails; after the first read the guard fails an
+// off-site main-frame Document, lets sub-frames through, and lets a redirect hop of an allowed request go on
+test("requestPaused: sealed, everything fails; guarded, only an off-site main-frame page request fails", async () => {
+  const tab = new Tab(7);
+  const out = [];
+  tab.send = async (method, params) => {
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "M", url: "http://shop.test/" } } };
+    if (method === "Fetch.enable") return {};
+    out.push([method, params.requestId]);
+    return {};
+  };
+  const paused = (requestId, url, { frameId = "M", resourceType = "Document", redirectedRequestId } = {}) =>
+    feed(tab, "Fetch.requestPaused", {
+      requestId,
+      frameId,
+      resourceType,
+      redirectedRequestId,
+      request: { method: "GET", url },
+    });
+  await tab.guardNavigations((url) => url.startsWith("http://shop.test/"));
+  paused("a", "http://shop.test/next");
+  paused("b", "http://evil.test/x");
+  paused("c", "http://evil.test/x", { frameId: "S" }); // a sub-frame: not guarded
+  paused("d", "http://evil.test/y", { resourceType: "XHR" }); // not a page request
+  paused("e", "http://shop.test/hop"); // allowed, so its redirect hop goes on whatever the address
+  paused("f", "http://evil.test/hop2", { redirectedRequestId: "e" });
+  assert.deepEqual(out, [
+    ["Fetch.continueRequest", "a"],
+    ["Fetch.failRequest", "b"],
+    ["Fetch.continueRequest", "c"],
+    ["Fetch.continueRequest", "d"],
+    ["Fetch.continueRequest", "e"],
+    ["Fetch.continueRequest", "f"],
+  ]);
+  assert.equal(tab.navBlocked.length, 1);
+  out.length = 0;
+  const blocked = [];
+  tab.sealed = blocked;
+  tab.sealFrame = "M";
+  tab.sealNav = { asked: false, failed: false, scripted: false };
+  paused("g", "http://shop.test/own", { resourceType: "XHR" });
+  paused("h", "http://shop.test/own2");
+  assert.deepEqual(out, [
+    ["Fetch.failRequest", "g"],
+    ["Fetch.failRequest", "h"],
+  ]);
+  assert.equal(blocked.length, 2);
+  assert.equal(tab.sealNav.failed, true);
+});
+
+test("a child frame's navigation during a read is not waited for; the main frame's is", () => {
+  const tab = new Tab(7);
+  tab.sealed = [];
+  tab.sealFrame = "M";
+  tab.sealNav = { asked: false, failed: false, scripted: false };
+  feed(tab, "Page.frameRequestedNavigation", { frameId: "child", url: "http://ads.test/", reason: "scriptInitiated" });
+  assert.equal(tab.sealNav.asked, false);
+  feed(tab, "Page.frameRequestedNavigation", { frameId: "M", url: "http://shop.test/x", reason: "scriptInitiated" });
+  assert.equal(tab.sealNav.asked, true);
+});

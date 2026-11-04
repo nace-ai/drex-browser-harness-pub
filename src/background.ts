@@ -180,12 +180,21 @@ chrome.runtime.onConnect.addListener((port) => {
 // --- notifications ------------------------------------------------------------------------------------------------
 function notify(e: AskEvent): void {
   if (!notifyOn) return;
-  const title = e.kind === "approve" ? "Drex needs your approval" : "Drex needs you";
-  const message = e.items?.length ? `${e.message}\n${e.items.slice(0, 3).join("\n")}` : e.message;
+  const title =
+    e.kind === "approve"
+      ? "Drex needs your approval"
+      : e.kind === "question"
+        ? "Drex has a question"
+        : "Drex needs you";
+  const message =
+    e.items?.length && e.kind !== "question" ? `${e.message}\n${e.items.slice(0, 3).join("\n")}` : e.message;
+  // a question's first two choices answer it from the notification; any other reply is typed in the panel
   const buttons =
     e.kind === "approve"
       ? [{ title: "Allow once" }, { title: "Stop" }]
-      : [{ title: "I'm done, continue" }, { title: "Stop" }];
+      : e.kind === "question"
+        ? (e.items ?? []).slice(0, 2).map((choice) => ({ title: choice.slice(0, 40) }))
+        : [{ title: "I'm done, continue" }, { title: "Stop" }];
   void chrome.notifications.create(NOTE_ID, {
     type: "basic",
     iconUrl: "icons/icon128.png",
@@ -200,7 +209,10 @@ function notify(e: AskEvent): void {
 // the buttons answer without the panel: "Allow once" / "I'm done" go ahead, Stop stops
 chrome.notifications.onButtonClicked.addListener((id, index) => {
   if (id !== NOTE_ID || !agent || !ask) return;
-  agent.answer(index === 0 ? (ask.kind === "approve" ? "once" : true) : false);
+  if (ask.kind === "question") {
+    const choice = ask.items?.[index];
+    if (choice) agent.answer({ reply: choice });
+  } else agent.answer(index === 0 ? (ask.kind === "approve" ? "once" : true) : false);
   void chrome.notifications.clear(NOTE_ID);
 });
 

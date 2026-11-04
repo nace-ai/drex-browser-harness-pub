@@ -1,4 +1,5 @@
 import { providerUsage } from "./hosted-budget.mjs";
+import { naceClient } from "./version.mjs";
 // The extension gets an in-process RPC channel, never provider credentials or a
 // localhost HTTP proxy. Only its service worker can open this extension port;
 // only the runner's extension page has the Playwright bindings (fetch and abort) back to Node.
@@ -21,8 +22,11 @@ export function modelTransport({ drexUrl, llmUrl, drexKey = "proxy", llmKey = "p
     )
       throw new Error("Worker transport refused this operation.");
     const headers = { "content-type": "application/json" };
-    if (endpoint.kind === "drex") headers.authorization = `Bearer ${endpoint.key}`;
-    else {
+    if (endpoint.kind === "drex") {
+      headers.authorization = `Bearer ${endpoint.key}`;
+      headers["x-nace-client"] = naceClient();
+      headers["user-agent"] = naceClient();
+    } else {
       headers["x-api-key"] = endpoint.key;
       headers["anthropic-version"] = "2023-06-01";
       const beta = request.headers?.["anthropic-beta"];

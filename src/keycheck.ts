@@ -2,6 +2,7 @@
 // a task. The Drex check is one tiny decision (a fraction of a millionth of a dollar); the Anthropic check counts the
 // tokens of one word, which is free; the OpenAI and Fireworks checks ask for a two-word answer (a key can list models
 // while its account has no credits left, and only a real call shows that).
+import { NACE_CLIENT, NACE_CLIENT_HEADER } from "./client-id.ts";
 import { DREX_MODEL, DREX_URL, bodyOf, wrongModelMessage } from "./drex.ts";
 import { OPENROUTER_APP } from "./models.ts";
 import type { KeyCheck, LlmKeyCheck, ProviderId } from "./types.ts";
@@ -17,7 +18,11 @@ export async function checkDrexKey(key: string | undefined, fetchFn: FetchFn = f
   try {
     const r = await fetchFn(DREX_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        [NACE_CLIENT_HEADER]: NACE_CLIENT,
+      },
       body: JSON.stringify({
         model: DREX_MODEL,
         state: "A key check.",

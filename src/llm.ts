@@ -165,7 +165,51 @@ const PLAN_SCHEMA = {
 // wrote "the burger is missing, better to go back to the store first".
 // dragTo (the switch of that name, from the agent) adds the drag_to gesture: from and to are the tags of the element
 // dragged and of the one it is dropped onto, "" for the other gestures (the schema is strict: every field is required).
-const rescueSchema = (keys: string[], replan = true, finish = false, dragTo = false) => ({
+// pointerPath (off by default) adds the path gesture: a continuous stroke the helper gives as polyline points or as an
+// ellipse or arc (centre, radii, angles), in original screenshot pixels. Strict schema again: path is always there,
+// with points and arc empty lists when unused.
+const PATH_SCHEMA = {
+  type: "object",
+  properties: {
+    points: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { x: { type: "number" }, y: { type: "number" } },
+        required: ["x", "y"],
+        additionalProperties: false,
+      },
+    },
+    arc: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          cx: { type: "number" },
+          cy: { type: "number" },
+          rx: { type: "number" },
+          ry: { type: "number" },
+          startDeg: { type: "number" },
+          endDeg: { type: "number" },
+          closed: { type: "boolean" },
+        },
+        required: ["cx", "cy", "rx", "ry", "startDeg", "endDeg", "closed"],
+        additionalProperties: false,
+      },
+    },
+    closed: { type: "boolean" },
+  },
+  required: ["points", "arc", "closed"],
+  additionalProperties: false,
+};
+
+export const rescueSchema = (
+  keys: string[],
+  replan = true,
+  finish = false,
+  dragTo = false,
+  pointerPath = false,
+): JsonSchema => ({
   type: "object",
   properties: {
     why: { type: "string" },
@@ -189,7 +233,17 @@ const rescueSchema = (keys: string[], replan = true, finish = false, dragTo = fa
     gesture: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["hover", "double_click", "drag", "keychord", ...(dragTo ? ["drag_to"] : [])] },
+        kind: {
+          type: "string",
+          enum: [
+            "hover",
+            "double_click",
+            "drag",
+            "keychord",
+            ...(dragTo ? ["drag_to"] : []),
+            ...(pointerPath ? ["path"] : []),
+          ],
+        },
         endX: { type: "number" },
         endY: { type: "number" },
         key: {
@@ -221,8 +275,17 @@ const rescueSchema = (keys: string[], replan = true, finish = false, dragTo = fa
         },
         modifiers: { type: "array", items: { type: "string", enum: ["Shift", "Control", "Meta"] } },
         ...(dragTo ? { from: { type: "string" }, to: { type: "string" } } : {}),
+        ...(pointerPath ? { path: PATH_SCHEMA } : {}),
       },
-      required: ["kind", "endX", "endY", "key", "modifiers", ...(dragTo ? ["from", "to"] : [])],
+      required: [
+        "kind",
+        "endX",
+        "endY",
+        "key",
+        "modifiers",
+        ...(dragTo ? ["from", "to"] : []),
+        ...(pointerPath ? ["path"] : []),
+      ],
       additionalProperties: false,
     },
     ...(replan ? { new_steps: { type: "array", items: STEP } } : {}),
@@ -303,13 +366,17 @@ const FINISHED_LINE = `- "finished": the user's whole task is done on screen and
 
 const DRAG_TO_LINE = ` drag_to drags a tagged element onto another: gesture.from is the tag (E#) of the element to drag and gesture.to the tag of the one to drop it onto; when both are tagged, use it rather than a drag by pixels.`;
 
-const rescueSystem = (
+/** pointerPath: the path gesture, for a stroke a straight drag cannot make (a shape drawn, a curve followed). */
+const PATH_LINE = ` path draws one continuous stroke with the button held, in original screenshot pixels, for what a straight drag cannot make (a curve, a closed shape, a trace): give gesture.path.points (a polyline of {x,y}, in order; closed true returns to the first point; at most 64 points, all inside the screenshot) or gesture.path.arc (one {cx,cy,rx,ry,startDeg,endDeg,closed}: the centre and the two radii of an ellipse read off the screenshot, angles in degrees from the right-hand direction increasing downwards on screen; startDeg 0 and endDeg 360 draw the whole ellipse, a smaller sweep an arc, closed true joins an arc's end to its start). Fill the one you use and leave the other an empty list; the stroke starts at its first point and ends at its last, so it must lie within the area the task marks.`;
+
+export const rescueSystem = (
   replan: boolean,
   finish: boolean,
   dragTo = false,
-) => `You help Drex, a fast decision model that works a browser by picking one move at a time from a list. Drex is unsure right now (the reason is given). Look at the screenshot (usable elements are boxed and tagged E1, E2, ...), the step, the recent moves and the list of moves, and decide:
+  pointerPath = false,
+): string => `You help Drex, a fast decision model that works a browser by picking one move at a time from a list. Drex is unsure right now (the reason is given). Look at the screenshot (usable elements are boxed and tagged E1, E2, ...), the step, the recent moves and the list of moves, and decide:
 - "move": the best next move; option is its exact key from the list (only listed moves exist; a tag that is not in the list is not on screen). If the move types text and none of the listed texts fits, put the text to type in text. With a "click E#" move on a text field, text is typed into that field after the click.
-- "gesture": hover/double_click at x,y, or drag from x,y to gesture.endX,endY, using original screenshot pixel coordinates. keychord uses gesture.key/modifiers for page interactions; never browser/global shortcuts. Pointer gestures use no modifiers. a/z/y/c/v/x require Control or Meta, never both; Control/Meta only with a,z,y,c,v,x, arrows, Home, End, Backspace, Delete${accOn("styleKeys") ? " (and b, i, u: bold, italic, underline of the text selected in an editor: select the text first, with a double click on a word or Shift+arrows, then press it)" : ""}. Hover can reveal menus; double-click edits; drag moves a visible object.${dragTo ? DRAG_TO_LINE : ""} Use only when requested/necessary and ordinary options cannot express the action. Other decisions set an unused gesture object (hover, zeros, empty key/${dragTo ? "from/to/" : ""}modifiers).
+- "gesture": hover/double_click at x,y, or drag from x,y to gesture.endX,endY, using original screenshot pixel coordinates. keychord uses gesture.key/modifiers for page interactions; never browser/global shortcuts. Pointer gestures use no modifiers. a/z/y/c/v/x require Control or Meta, never both; Control/Meta only with a,z,y,c,v,x, arrows, Home, End, Backspace, Delete${accOn("styleKeys") ? " (and b, i, u: bold, italic, underline of the text selected in an editor: select the text first, with a double click on a word or Shift+arrows, then press it)" : ""}. Hover can reveal menus; double-click edits; drag moves a visible object.${dragTo ? DRAG_TO_LINE : ""}${pointerPath ? PATH_LINE : ""} Use only when requested/necessary and ordinary options cannot express the action. Other decisions set an unused gesture object (hover, zeros, empty key/${dragTo ? "from/to/" : ""}${pointerPath ? "path lists/" : ""}modifiers).
 - "click_point": what must be clicked has no tag (it is not boxed, or no move names it); x and y are its pixel position in the screenshot (option ""). Prefer this over keyboard moves that already changed nothing.
 ${replan ? REPLAN_LINE : ""}${finish ? FINISHED_LINE : ""}- "ask_user": a CAPTCHA, a login or a payment detail is visibly required, or a choice only the user can make (which of their saved addresses or cards, whether to accept a changed price, something the task leaves open that matters to them); set user_need to captcha/login/payment/choice; why says what, in one sentence addressed to the user.
 - "give_up": the task cannot be done here; why says why.
@@ -1800,6 +1867,7 @@ value: the exact text the step needs from the notes, copied as the notes show it
     replan = true,
     finish = false,
     dragTo = false,
+    pointerPath = false,
   }: {
     task?: string;
     state: string;
@@ -1811,12 +1879,14 @@ value: the exact text the step needs from the notes, copied as the notes show it
     finish?: boolean;
     /** the dragTo switch: the helper may drag one tagged element onto another */
     dragTo?: boolean;
+    /** the pointerPath switch: the helper may draw a continuous stroke (polyline, ellipse or arc) */
+    pointerPath?: boolean;
   }): Promise<LlmResult<RescueJson>> {
     const [mime, b64] = image.split(";base64,") as [string, string]; // every image here is a data URL
     return this.call<RescueJson>({
       purpose: "rescue",
-      system: rescueSystem(replan, finish, dragTo),
-      schema: rescueSchema(Object.keys(opts), replan, finish, dragTo),
+      system: rescueSystem(replan, finish, dragTo, pointerPath),
+      schema: rescueSchema(Object.keys(opts), replan, finish, dragTo, pointerPath),
       content: [
         ...(rawImage ? [imageBlock(rawImage)] : []),
         { type: "image", source: { type: "base64", media_type: mime.replace("data:", ""), data: b64 } },

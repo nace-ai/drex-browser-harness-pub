@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_MODEL, extensionDir, keysFrom, overOf } from "../runner/src/run.mjs";
 import { missingKey } from "../src/settings.ts";
 import { PROVIDERS } from "../src/models.ts";
@@ -61,6 +62,33 @@ test("the runner won't load an extension build that holds keys (the extension wo
     () => extensionDir({ NACE_BROWSER_EXTENSION: path.join(dir, "none") }),
     (e) => e.code === "extension_missing",
   );
+});
+
+// extensionDir finds the packaged builds next to runner/src; a checkout may have neither (no release build yet), so the
+// path each mode asks for is read off the error when it is missing
+test("the runner loads the packaged extension of the mode: extension/ for default, extension-loop/ for loop", () => {
+  const rootDir = fileURLToPath(new URL("../runner/", import.meta.url));
+  const picked = (env, mode) => {
+    try {
+      return extensionDir(env, mode);
+    } catch (e) {
+      assert.equal(e.code, "extension_missing");
+      return e.message.match(/No extension build at (\S+)\./)?.[1];
+    }
+  };
+  assert.equal(picked({}, undefined), path.join(rootDir, "extension-loop"));
+  assert.equal(picked({}, "default"), path.join(rootDir, "extension"));
+  assert.equal(picked({}, "loop"), path.join(rootDir, "extension-loop"));
+  // the environment picks the mode when the caller doesn't, and an unknown one is refused, not run as the default
+  assert.equal(picked({ NACE_BROWSER_MODE: "loop" }, undefined), path.join(rootDir, "extension-loop"));
+  assert.throws(() => extensionDir({}, "fast"), /one of default, loop/);
+});
+
+test("NACE_BROWSER_EXTENSION wins over the mode", (t) => {
+  const dir = tmp(t);
+  fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
+  assert.equal(extensionDir({ NACE_BROWSER_EXTENSION: dir }, "loop"), dir);
+  assert.equal(extensionDir({ NACE_BROWSER_EXTENSION: dir }, "default"), dir);
 });
 
 test("the release guard finds local files, sourcemaps, key-shaped strings and the home directory", (t) => {

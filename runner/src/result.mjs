@@ -127,7 +127,7 @@ export function evidenceOf(run) {
 
 /**
  * The run's result, in the shape of GET /v1/browser/runs/{id}, plus where the local artifacts are.
- * meta: {id, task, start_url, profile, created_at, started_at, finished_at, final_url, ended, page, artifacts}.
+ * meta: {id, task, start_url, agent_mode, profile, created_at, started_at, finished_at, final_url, ended, page, artifacts}.
  * `answer` is the structured answer an answer_schema asks for; the runner takes no schema yet, so it is null and
  * the answer is in answer_text, as on the API without a schema.
  */
@@ -139,6 +139,9 @@ export function resultOf(run, meta = {}) {
     id: meta.id ?? null,
     object: "browser_run",
     mode: "local",
+    // which agent ran: the extension's own record of its build ("" is the default agent, "loop" the loop) when the run
+    // has one, else the mode the runner asked for. `mode` above is where the run happens, as in Drex's API.
+    agent_mode: typeof run?.mode === "string" ? (run.mode === "loop" ? "loop" : "default") : (meta.agent_mode ?? null),
     status,
     task: meta.task ?? run?.task ?? null,
     start_url: meta.start_url ?? null,

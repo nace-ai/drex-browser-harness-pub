@@ -4,12 +4,28 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
-## [Unreleased]
+## [0.1.7] - 2026-11-04
 
 ### Changed
 
+- **Local runner and MCP server**: Loop mode is the default. `nace-browser run` and `nace-browser mcp` load the Loop build
+  unless you pass `--mode default` (or set `NACE_BROWSER_MODE=default`), which runs the older agent. The result's
+  `agent_mode` says which one ran. Reason: on 43 WebArena-Verified tasks fixed before the work and not tuned on, Loop
+  mode passed 70% against the default mode's 58%, at about a quarter less model cost (Claude Code with Haiku 5.5
+  passed 80%). `npm run build:release` builds both modes, `runner/extension/` and `runner/extension-loop/`, and checks
+  that each holds the mode it is named for.
 - **Chrome extension and local runner**: calls to OpenRouter now send `HTTP-Referer: https://nace.ai` and
   `X-OpenRouter-Title: Drex Browser Use`, so OpenRouter can attribute the traffic to this app. Key checks send them too.
+
+### Security
+
+- **Chrome extension**: Loop mode's `read` now runs sealed: in an isolated world of its own with the network, timers,
+  storage and page changes taken away, every request the tab makes meanwhile failed, and a read that moved the page
+  taken back. After the first read, a navigation to another site fails unless a step or the person's turn is under way.
+  Three residuals are accepted (see the README and `docs/runner.md`): a `javascript:` address that code outliving a read
+  schedules later is logged, not stopped; deferred non-document requests need such code too; and a read can still remove
+  or reorder a select's existing options. This replaces 0.1.6's "evaluation only" warning; it is a
+  restriction, not a proof, so use accounts you can afford to expose until you have judged the risk.
 
 ## [0.1.6] - 2026-10-30
 

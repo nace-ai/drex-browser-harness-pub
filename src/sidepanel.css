@@ -555,6 +555,15 @@ ol {
 .ask .actions {
   margin-top: 0;
 }
+.ask .ask-choices {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+.ask .ask-reply {
+  width: 100%;
+  margin-bottom: 10px;
+}
 .ask img {
   display: block;
   width: 100%;

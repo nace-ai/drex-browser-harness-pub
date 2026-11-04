@@ -1,4 +1,4 @@
-import type { PointTarget } from "./types.ts";
+import type { EnterTarget, PointTarget } from "./types.ts";
 
 // What a click at a screen point would land on, for the approval gate (logic.ts pointRisk). It runs in the page
 // (Tab.pointTarget sends its source), so it uses nothing from outside itself. Only public DOM is read: names, roles,
@@ -288,6 +288,53 @@ export function pointTargetAt(x: number, y: number): PointTarget | null {
     overlay,
     consent,
     payment,
-    key: [tag(target), roleOf(target), names[0] ?? "", Math.round(r.left), Math.round(r.top)].join("|"),
+    key: [
+      tag(target),
+      roleOf(target),
+      names[0] ?? "",
+      control ? (namesOf(control)[0] ?? "") : "",
+      Math.round(r.left),
+      Math.round(r.top),
+    ].join("|"),
   };
+}
+
+/** What Enter in this field would submit (Tab.on runs it on the field, so it uses nothing from outside itself): the
+ * form's default button, the first submit button in it, by the name a person reads on it, and whether the form sends
+ * something by the rule pointTargetAt applies to a submit button. null: the field is in no form. A text area is
+ * asked about too: its Enter starts a new line by default, but chat and comment boxes often send on it. */
+export function enterTargetOf(this: Element): EnterTarget | null {
+  const form = (this as HTMLInputElement).form ?? this.closest("form");
+  if (!form) return null;
+  const flat = (t: string | null | undefined) => (t ?? "").replace(/\s+/g, " ").trim();
+  const button = [...form.elements].find(
+    (e) =>
+      (e.tagName === "BUTTON" && (e as HTMLButtonElement).type === "submit") ||
+      (e.tagName === "INPUT" && ["submit", "image"].includes((e as HTMLInputElement).type)),
+  ) as HTMLButtonElement | HTMLInputElement | undefined;
+  const method = (button?.getAttribute("formmethod") ?? form.getAttribute("method") ?? "get").trim().toLowerCase();
+  const sends =
+    method === "post" ||
+    [...form.querySelectorAll("input, textarea")].some((f) => {
+      const field = f as HTMLInputElement;
+      if (field.type === "password" || field.autocomplete.startsWith("cc-")) return true;
+      return (field.tagName === "TEXTAREA" || ["email", "tel"].includes(field.type)) && !!field.value.trim();
+    });
+  const name = button
+    ? flat(
+        button.getAttribute("aria-label") ||
+          (button.getAttribute("aria-labelledby") ?? "")
+            .split(/\s+/)
+            .map((id) => button.ownerDocument.getElementById(id)?.textContent ?? "")
+            .join(" ") ||
+          (button as HTMLElement).innerText ||
+          button.querySelector("img[alt]")?.getAttribute("alt") ||
+          button.querySelector("svg title")?.textContent ||
+          (button as HTMLInputElement).value ||
+          button.getAttribute("title") ||
+          button.getAttribute("alt"),
+      )
+    : null;
+  const focused = (this.getRootNode() as Document | ShadowRoot).activeElement === this;
+  return { button: name, sends, focused };
 }

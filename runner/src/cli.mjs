@@ -19,6 +19,7 @@ export function summaryText(r) {
   const lines = [
     `status: ${r.status} (${r.outcome.kind}${r.outcome.reason ? `: ${r.outcome.reason}` : ""})`,
     `final page: ${r.final_url ?? "-"}`,
+    `agent: ${r.agent_mode}`,
     `cost: $${r.usage.cost_usd.toFixed(4)}, ${r.usage.browser_seconds} s, ${r.steps.length} steps`,
   ];
   for (const a of r.artifacts) lines.push(`${a.kind}: ${a.path}`);
@@ -114,7 +115,7 @@ export async function main(argv) {
       const { serve } = await import("./mcp.mjs");
       // a signal closes the server, which cancels the running tools (their browsers close, their locks are released);
       // with Playwright's own handlers the browsers would close under the runs and the server would keep running
-      const server = await serve({ handleSignals: false });
+      const server = await serve({ handleSignals: false, mode: cmd.mode });
       cancelOnSignals((code) => {
         process.exitCode = code;
         void server.close().catch(() => {});

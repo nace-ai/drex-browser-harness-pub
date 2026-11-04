@@ -11,6 +11,14 @@ export const DEFAULT_LIMITS = Object.freeze({ maxCostUsd: 0.04, maxSeconds: 600,
 /** The most a person can raise them to from the CLI: the same caps as Drex's /v1/browser/runs. */
 export const MAX_LIMITS = Object.freeze({ maxCostUsd: 1, maxSeconds: 1800, maxLlmCalls: 100 });
 
+/**
+ * The agents the package ships, one extension build each (build.mjs --release): "default" is the agent as it has
+ * worked, "loop" the LLM-driven loop (src/loop/), which is the default: on held-out tasks it passed more (70% vs 58%) at a
+ * lower cost than "default". `--mode default` still runs the agent as it has worked.
+ */
+export const MODES = Object.freeze(["default", "loop"]);
+export const DEFAULT_MODE = "loop";
+
 export class UsageError extends Error {
   constructor(message) {
     super(message);
@@ -26,7 +34,7 @@ Usage:
   nace-browser run "task" --url URL [options] run one task and print the result
   nace-browser login URL [--profile NAME]     open a window to sign in to a site; the profile keeps the session
   nace-browser profiles [--json]              list the saved profiles
-  nace-browser mcp                            serve browser_task, browser_login and browser_profiles over stdio (MCP)
+  nace-browser mcp [--mode MODE]              serve browser_task, browser_login and browser_profiles over stdio (MCP)
 
 Run options:
   --url URL            the page the run starts on (http or https)
@@ -39,6 +47,7 @@ Run options:
   --max-seconds N      stop after N seconds (default ${DEFAULT_LIMITS.maxSeconds}, at most ${MAX_LIMITS.maxSeconds})
   --max-llm-calls N    stop after N LLM requests (default ${DEFAULT_LIMITS.maxLlmCalls}, at most ${MAX_LIMITS.maxLlmCalls})
   --model M            the LLM that plans and reads (default claude-haiku-5-5)
+  --mode MODE          the agent: ${MODES.join(" or ")} (default ${DEFAULT_MODE}; or set NACE_BROWSER_MODE)
   --allow-risky        disable the best-effort risky-click guard (enabled by default)
   --out DIR            where to save the run log and screenshots (default ~/.nace/browser/runs/<run id>)
   --quiet              no progress lines on stderr
@@ -106,8 +115,19 @@ export function profileOf(value) {
   }
 }
 
-/** argv without node and the script: ["run", "task", "--url", "https://..."]. */
-export function parseCli(argv) {
+/**
+ * The agent mode of a run: the caller's value, else NACE_BROWSER_MODE, else the default. An unknown one is a
+ * UsageError that names the allowed ones, not a silent fall back to the default agent.
+ */
+export function modeOf(value, env = process.env) {
+  const mode = value ?? (env.NACE_BROWSER_MODE || DEFAULT_MODE);
+  if (!MODES.includes(mode))
+    throw new UsageError(`The mode must be one of ${MODES.join(", ")}, not ${JSON.stringify(mode)}.`);
+  return mode;
+}
+
+/** argv without node and the script: ["run", "task", "--url", "https://..."]. env: where NACE_BROWSER_MODE is read. */
+export function parseCli(argv, env = process.env) {
   const [first, ...rest] = argv;
   if (first === undefined || first === "--help" || first === "-h" || first === "help") return { command: "help" };
   if (first === "--version" || first === "-v" || first === "version") return { command: "version" };
@@ -124,13 +144,14 @@ export function parseCli(argv) {
       "max-seconds": { type: "string" },
       "max-llm-calls": { type: "string" },
       model: { type: "string" },
+      mode: { type: "string" },
       "allow-risky": { type: "boolean" },
       out: { type: "string" },
       quiet: { type: "boolean" },
     },
     login: { profile: { type: "string" } },
     profiles: { json: { type: "boolean" } },
-    mcp: {},
+    mcp: { mode: { type: "string" } },
   }[first];
   let parsed;
   try {
@@ -171,6 +192,7 @@ export function parseCli(argv) {
         tempProfile: !!v["temp-profile"],
         limits: limitsOf({ maxCost: v["max-cost"], maxSeconds: v["max-seconds"], maxLlmCalls: v["max-llm-calls"] }),
         model: v.model || undefined,
+        mode: modeOf(v.mode, env),
         allowRisky: !!v["allow-risky"],
         out: v.out || undefined,
         quiet: !!v.quiet,
@@ -187,7 +209,7 @@ export function parseCli(argv) {
       return { command: "profiles", json: !!v.json };
     case "mcp":
       extra(0);
-      return { command: "mcp" };
+      return { command: "mcp", mode: modeOf(v.mode, env) };
     default:
       return { command: first };
   }
