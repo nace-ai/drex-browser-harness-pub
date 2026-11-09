@@ -1,6 +1,8 @@
+# Drex Browser Use: AI browser agent and MCP browser server
+
 <img alt="Drex Browser Use by nace.ai. Describe a browser task in plain words: Drex Max takes the actions, for a fraction of a cent a move, and an LLM helps: it plans, reads and checks. It works as an MCP server, a CLI and a Chrome side panel. Shown: a real run on DoorDash, 16 moves in 66 seconds for $0.006." src="docs/assets/hero.webp">
 
-[Quick start](#quick-start-the-local-runner) · [Chrome extension](#the-chrome-extension) · [Benchmarks](#benchmarks) ·
+[Quick start](#quick-start-the-mcp-browser-server-and-cli) · [Chrome extension](#the-chrome-extension) · [Benchmarks](#benchmarks) ·
 [How it works](#how-it-works) · [Models](#models) · [Safety](#safety) · [Docs](#documentation)
 
 **Describe a browser task in plain words. Drex Browser Use does it in a real browser and tells you what it found.**
@@ -9,6 +11,8 @@
 controls and screenshots, for a fraction of a cent a move. **An LLM helps:** it plans the task, reads pages and checks
 the result. The LLM is your choice: Claude Haiku 5.5 by default, or [another model](#models). Coding agents call it as
 an MCP server or a CLI; people use it from a Chrome side panel.
+
+Part of [Drex](https://github.com/nace-ai/drex-decision-models), Nace.AI's open decision models. Drex Max, the model that takes the actions here, is one of them: [weights, model page and runners](https://github.com/nace-ai/drex-decision-models/tree/main/models/drex-max-v1).
 
 <img alt="A real run of Drex Browser Use, sped up 5 times: given the task 'Order me some burger and diet coke on Tuesday morning', it searches DoorDash for burgers, schedules delivery for Tuesday, opens McDonald's, picks a Double Cheeseburger, adds a Diet Coke and adds the order to the cart, in 16 moves, 66 seconds and $0.006 of model cost. It stops at the cart." src="docs/assets/demo.webp">
 
@@ -22,7 +26,7 @@ details and tell me the confirmation".
 What it will not do: type passwords or payment details, or solve CAPTCHAs. It stops before a click it recognizes as
 risky (pay, send, delete, publish, place an order) unless a person approves it. See [Safety](#safety).
 
-## Ways to use it
+## Ways to use Drex Browser Use
 
 | | Who it's for | How you run it |
 | --- | --- | --- |
@@ -33,7 +37,7 @@ risky (pay, send, delete, publish, place an order) unless a person approves it. 
 Nothing is published to npm or the Chrome Web Store: both the runner and the extension are built from a checkout of
 this repository, as below.
 
-## Quick start: the local runner
+## Quick start: the MCP browser server and CLI
 
 You need Node 22.18 or later, npm and git.
 
