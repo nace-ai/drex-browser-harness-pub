@@ -105,7 +105,11 @@ export class Drex {
         throw new Error("Drex choice criteria must be a nonempty named string map");
       }
     }
-    const body = JSON.stringify({ model: this.model, state, questions, images });
+    // A Drex-compatible host may reject an empty images list (DeepInfra's /v1/decisions answers 422 "too_short" for
+    // one), so text-only requests send no images key at all; console.nace.ai accepts both shapes.
+    const body = JSON.stringify(
+      images.length ? { model: this.model, state, questions, images } : { model: this.model, state, questions },
+    );
     const reserve = reservationTokens(state, questions, images) * USD_PER_INPUT_TOKEN;
     let last = "";
     for (let attempt = 0; attempt < 7; attempt++) {
