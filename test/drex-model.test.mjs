@@ -119,6 +119,21 @@ test("checking an OpenAI or Fireworks key makes one tiny call and names an empty
   assert.match(bad.message, /rejected/);
 });
 
+test("a text-only request sends no images key; a request with images sends them", async (t) => {
+  let bodies = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return answer("drex-max");
+  });
+  const drex = new Drex({ key: "fixture" });
+  drex.runBudget = new RunBudget();
+  await drex.ask("state", questions);
+  assert.equal("images" in bodies[0], false);
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8DwnwEAAAAA//8DFgzLnwAAAABJRU5ErkJggg==";
+  await drex.ask("state", questions, [`data:image/png;base64,${png}`]);
+  assert.deepEqual(bodies[1].images, [`data:image/png;base64,${png}`]);
+});
+
 test("checking a Gemini key sends it as x-goog-api-key; an OpenRouter key goes as a bearer token", async () => {
   let seen;
   const fake = (status) => async (url, init) => {

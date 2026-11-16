@@ -4,6 +4,14 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## Unreleased
+
+### Fixed
+
+- **Chrome extension and local runner**: text-only Drex requests send no `images` key. An empty `images: []` was
+  already fine for console.nace.ai, but a Drex-compatible host can reject it (DeepInfra's `/v1/decisions` answers
+  422 "too_short" for an empty list), which stopped a run's first move on such a host.
+
 ## [0.1.7] - 2026-11-04
 
 ### Changed
