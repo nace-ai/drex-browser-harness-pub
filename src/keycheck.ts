@@ -147,6 +147,24 @@ export const checkGoogleKey = (key: string | undefined, model: string, fetchFn: 
     { "x-goog-api-key": key ?? "" },
   );
 
+export const checkZaiKey = (key: string | undefined, model: string, fetchFn: FetchFn = fetch): Promise<KeyCheck> =>
+  tinyCall(
+    "Z.ai",
+    "https://api.z.ai/api/coding/paas/v4/chat/completions",
+    key,
+    { model, messages: [{ role: "user", content: "Say ok." }], max_tokens: 4 },
+    fetchFn,
+  );
+
+export const checkDeepseekKey = (key: string | undefined, model: string, fetchFn: FetchFn = fetch): Promise<KeyCheck> =>
+  tinyCall(
+    "DeepSeek",
+    "https://api.deepseek.com/v1/chat/completions",
+    key,
+    { model, messages: [{ role: "user", content: "Say ok." }], max_tokens: 4 },
+    fetchFn,
+  );
+
 /** The check for each provider's key, given the model to try it with. */
 export const LLM_KEY_CHECKS: Record<ProviderId, LlmKeyCheck> = {
   anthropic: checkAnthropicKey,
@@ -154,4 +172,6 @@ export const LLM_KEY_CHECKS: Record<ProviderId, LlmKeyCheck> = {
   fireworks: checkFireworksKey,
   google: checkGoogleKey,
   openrouter: checkOpenRouterKey,
+  zai: checkZaiKey,
+  deepseek: checkDeepseekKey,
 };

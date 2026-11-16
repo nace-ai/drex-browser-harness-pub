@@ -224,6 +224,7 @@ test("a pasted key is told by its prefix, and each provider starts on a model th
     AIzaSyAZx: "google",
     "sk-proj-x": "openai",
     "sk-svcacct-x": "openai",
+    [`sk-${"a".repeat(32)}`]: "deepseek",
     " sk-ant-x ": "anthropic",
     nace_sk_x: null,
     hello: null,

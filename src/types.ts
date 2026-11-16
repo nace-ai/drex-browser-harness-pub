@@ -31,6 +31,8 @@ export interface Settings {
   fireworksKey?: string;
   googleKey?: string;
   openrouterKey?: string;
+  zaiKey?: string;
+  deepseekKey?: string;
   model: ModelId;
   background: boolean;
   approvals: boolean;

@@ -4,6 +4,15 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## Unreleased
+
+### Added
+
+- **Chrome extension and local runner**: two OpenAI-compatible planner providers, Z.ai and DeepSeek direct. GLM-5.3
+  Flash (`glm-5.3-flash`, key `GLM_API_KEY`/`ZAI_API_KEY`) and DeepSeek Flash (`deepseek-flash`, key
+  `DEEPSEEK_API_KEY`) read screenshots, pass key checks, and take runs. Vision was checked with real screenshot calls
+  on both providers (2026-11-16); catalog prices are metering estimates from the models' OpenRouter listings.
+
 ## [0.1.7] - 2026-11-04
 
 ### Changed

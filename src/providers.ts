@@ -7,6 +7,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFireworks } from "@ai-sdk/fireworks";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP, PROVIDERS, providerOf } from "./models.ts";
 import type { FilePart, FinishReason, ModelMessage, TextPart, LanguageModel, LanguageModelUsage } from "ai";
@@ -19,6 +20,9 @@ const FACTORIES: Record<ProviderId, (apiKey: string) => (model: string) => Langu
   fireworks: (apiKey) => createFireworks({ apiKey }),
   google: (apiKey) => createGoogleGenerativeAI({ apiKey }),
   openrouter: (apiKey) => createOpenRouter({ apiKey, appUrl: OPENROUTER_APP.url, appName: OPENROUTER_APP.name }),
+  // z.ai's coding endpoint and DeepSeek's API are both OpenAI-compatible chat/completions
+  zai: (apiKey) => createOpenAICompatible({ name: "zai", baseURL: "https://api.z.ai/api/coding/paas/v4", apiKey }),
+  deepseek: (apiKey) => createOpenAICompatible({ name: "deepseek", baseURL: "https://api.deepseek.com/v1", apiKey }),
 };
 
 export function languageModel(model: string, keys: ApiKeys): LanguageModel {

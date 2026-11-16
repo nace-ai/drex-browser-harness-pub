@@ -20,7 +20,9 @@
     "https://api.openai.com/*",
     "https://api.fireworks.ai/*",
     "https://generativelanguage.googleapis.com/*",
-    "https://openrouter.ai/*"
+    "https://openrouter.ai/*",
+    "https://api.z.ai/*",
+    "https://api.deepseek.com/*"
   ],
   "commands": {
     "_execute_action": {
