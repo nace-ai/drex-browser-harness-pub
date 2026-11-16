@@ -44,8 +44,10 @@ The runner reads keys only from the environment of the process that starts it:
 
 Other LLMs are available on the CLI with `--model` (a model id from `src/models.ts`; an unknown one ends in
 `run_refused`), with their provider's usual variable: `OPENAI_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`,
-`OPENROUTER_API_KEY`, or `FIREWORKS_API_KEY`. Accuracy was measured with Claude Haiku 5.5. MCP runs always use the
-default model, so they need `ANTHROPIC_API_KEY`.
+`OPENROUTER_API_KEY`, or `FIREWORKS_API_KEY`. Accuracy was measured with Claude Haiku 5.5. MCP runs use the
+default model unless the person who started the server sets `NACE_BROWSER_MODEL` to another catalog id (set it in
+their environment, beside the keys); the calling agent cannot choose it. Without Anthropic, set it to a model whose
+key the environment does have, e.g. `NACE_BROWSER_MODEL=gemini-3.8-flash`.
 
 OpenRouter calls send `HTTP-Referer: https://nace.ai` and `X-OpenRouter-Title: Drex Browser Use` so OpenRouter can
 attribute them to this app; the Drex key never goes to OpenRouter. The two headers are fixed in this version.

@@ -88,6 +88,9 @@ export function createServer({
           // an agent lowers the limits; it can't raise them (the zod schema caps each at its default)
           limits: limitsOf({ maxCost: args.max_cost_usd, maxSeconds: args.max_seconds }, DEFAULT_LIMITS),
           allowRisky: false,
+          // the planner, chosen by the person who started the server (never by the calling agent): e.g.
+          // NACE_BROWSER_MODEL=gemini-3.8-flash with that provider's key, for a machine with no Anthropic key
+          ...(env.NACE_BROWSER_MODEL ? { model: env.NACE_BROWSER_MODEL } : {}),
         };
         if (!opts.task) throw new UsageError("task is empty.");
         const token = extra._meta?.progressToken;

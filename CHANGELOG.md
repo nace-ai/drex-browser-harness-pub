@@ -4,6 +4,15 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 Each entry names the part it changes: the Chrome extension or the local runner (`nace-browser`).
 
+## Unreleased
+
+### Added
+
+- **Local runner and MCP server**: `NACE_BROWSER_MODEL` lets the person who starts `nace-browser mcp` choose the
+  planner model (any catalog id, with its provider's key), instead of MCP runs being pinned to the default model and
+  needing an Anthropic key. The calling agent still cannot choose it: it is read from the server's environment, not
+  from a tool argument.
+
 ## [0.1.7] - 2026-11-04
 
 ### Changed

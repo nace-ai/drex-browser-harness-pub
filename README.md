@@ -200,8 +200,9 @@ in dollars; any other model id is refused.
 | OpenRouter | Claude Haiku 5.5 | `anthropic/claude-haiku-5.5` | `OPENROUTER_API_KEY` |
 | OpenRouter | GPT-6 Luna | `openai/gpt-6-luna` | `OPENROUTER_API_KEY` |
 
-MCP runs always use the default model, so they need `ANTHROPIC_API_KEY`. A pricier model raises a run's default cost limit in proportion to its price
-([docs/runner.md](docs/runner.md)).
+MCP runs use the default model unless the person who started the server sets `NACE_BROWSER_MODEL` (see
+[docs/runner.md](docs/runner.md)); the calling agent cannot choose the model. A pricier model raises a run's default
+cost limit in proportion to its price.
 
 ## Safety
 
