@@ -73,6 +73,23 @@ test("browser_task runs with risky actions denied and the limits an agent asked 
   await client.close();
 });
 
+test("NACE_BROWSER_MODEL on the server's own environment picks the planner; no tool argument can", async () => {
+  const calls = [];
+  const run = async (opts) => {
+    calls.push(opts);
+    return { status: "succeeded", answer_text: "42", outcome: { kind: "completed", reason: null, evidence: [] } };
+  };
+  const client = await connect({ env: { NACE_BROWSER_MODEL: "gemini-3.8-flash" }, run });
+  await client.callTool({
+    name: "browser_task",
+    arguments: { task: "x", start_url: "https://a.example/", model: "claude-opus-5-5" },
+  });
+  assert.equal(calls[0].model, "gemini-3.8-flash", "the environment's model wins over an argument the schema lacks");
+  const plain = await connect({ env: {}, run });
+  await plain.callTool({ name: "browser_task", arguments: { task: "x", start_url: "https://a.example/" } });
+  assert.equal("model" in calls[1], false, "with no override the run names no model, as before");
+});
+
 test("the server's mode (the flag, else NACE_BROWSER_MODE, else loop) is the agent every browser_task runs, never a tool argument", async () => {
   const modes = [];
   const run = async (opts) => (modes.push(opts.mode), { status: "succeeded", outcome: { kind: "completed" } });
