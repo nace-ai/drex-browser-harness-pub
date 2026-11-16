@@ -29,6 +29,8 @@ test("a run denies risky clicks unless --allow-risky, and sends its keys and lim
     fireworksKey: "",
     googleKey: "",
     openrouterKey: "",
+    zaiKey: "",
+    deepseekKey: "",
     runLimits: { maxSeconds: 600, maxHaikuCalls: 20 }, // no cost limit: the extension scales its own to the model
     approvals: true,
     report: { expect: "" },

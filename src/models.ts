@@ -20,6 +20,10 @@ export const PROVIDERS = {
     defaultModel: "accounts/fireworks/models/glm-5p3-flash",
   },
   google: { label: "Google Gemini", keyName: "googleKey", prefix: /^AIza/, defaultModel: "gemini-3.8-flash" },
+  // z.ai + DeepSeek direct: OpenAI-compatible endpoints. A deepseek key is "sk-" + 32 hex chars — precise, so it
+  // doesn't swallow OpenAI's longer "sk-" keys in paste detection.
+  zai: { label: "Z.ai (GLM)", keyName: "zaiKey", prefix: /^[0-9a-f]{20,}/, defaultModel: "glm-5.3-flash" },
+  deepseek: { label: "DeepSeek", keyName: "deepseekKey", prefix: /^sk-[0-9a-f]{32}$/, defaultModel: "deepseek-flash" },
   openai: { label: "OpenAI", keyName: "openaiKey", prefix: /^sk-/, defaultModel: "gpt-6-luna" },
 } as const satisfies Record<string, ProviderEntry>;
 
@@ -120,6 +124,21 @@ export const CATALOG = {
     prices: [0.048, 0.16, 0.006, 0.048],
     vision: true,
     offered: false,
+  },
+  // z.ai direct (https://api.z.ai/api/coding/paas/v4) and DeepSeek direct (https://api.deepseek.com/v1), both
+  // OpenAI-compatible chat/completions. Vision checked with a real screenshot call on each (2026-11-16). Prices are
+  // metering estimates from the models' OpenRouter listings, not exact invoice math.
+  "glm-5.3-flash": {
+    provider: "zai",
+    label: "GLM-5.3 Flash (z.ai)",
+    prices: [0.048, 0.16, 0.006, 0.048],
+    vision: true,
+  },
+  "deepseek-flash": {
+    provider: "deepseek",
+    label: "DeepSeek Flash (direct)",
+    prices: [0.0352, 0.0112, 0.0016, 0.0352],
+    vision: true,
   },
   "deepseek/deepseek-v4.1-flash": {
     provider: "openrouter",

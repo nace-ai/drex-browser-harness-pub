@@ -34,6 +34,8 @@ export const KEY_ENV = Object.freeze({
   fireworksKey: ["FIREWORKS_API_KEY"],
   googleKey: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
   openrouterKey: ["OPENROUTER_API_KEY"],
+  zaiKey: ["GLM_API_KEY", "ZAI_API_KEY"],
+  deepseekKey: ["DEEPSEEK_API_KEY"],
 });
 
 /** The keys set in the environment. They go to the extension with the run, never to its storage or to disk. */

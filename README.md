@@ -199,6 +199,8 @@ in dollars; any other model id is refused.
 | Fireworks | GLM-5.3 Flash | `accounts/fireworks/models/glm-5p3-flash` | `FIREWORKS_API_KEY` |
 | OpenRouter | Claude Haiku 5.5 | `anthropic/claude-haiku-5.5` | `OPENROUTER_API_KEY` |
 | OpenRouter | GPT-6 Luna | `openai/gpt-6-luna` | `OPENROUTER_API_KEY` |
+| Z.ai | GLM-5.3 Flash | `glm-5.3-flash` | `GLM_API_KEY` or `ZAI_API_KEY` |
+| DeepSeek | DeepSeek Flash | `deepseek-flash` | `DEEPSEEK_API_KEY` |
 
 MCP runs always use the default model, so they need `ANTHROPIC_API_KEY`. A pricier model raises a run's default cost limit in proportion to its price
 ([docs/runner.md](docs/runner.md)).

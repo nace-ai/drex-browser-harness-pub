@@ -12,6 +12,8 @@ const KEYS: (keyof Settings)[] = [
   "fireworksKey",
   "googleKey",
   "openrouterKey",
+  "zaiKey",
+  "deepseekKey",
   "model",
   "background",
   "approvals",

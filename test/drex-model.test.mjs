@@ -4,11 +4,13 @@ import { Drex, WrongModel } from "../src/drex.ts";
 import { RunBudget } from "../src/run-budget.ts";
 import {
   checkAnthropicKey,
+  checkDeepseekKey,
   checkDrexKey,
   checkFireworksKey,
   checkGoogleKey,
   checkOpenAIKey,
   checkOpenRouterKey,
+  checkZaiKey,
 } from "../src/keycheck.ts";
 
 // prod answers a model the key can't use with its default model (HTTP 200, "model": "drex-v2.0"), not an error
@@ -138,4 +140,18 @@ test("checking a Gemini key sends it as x-goog-api-key; an OpenRouter key goes a
   assert.equal(seen.init.headers.Authorization, "Bearer sk-or-K");
   assert.equal(seen.init.headers["HTTP-Referer"], "https://nace.ai");
   assert.equal(seen.init.headers["X-OpenRouter-Title"], "Drex Browser Use");
+});
+
+test("z.ai and deepseek key checks call each provider's chat/completions; both models are offered", async () => {
+  let seen;
+  const fake = (status) => async (url, init) => {
+    seen = { url, init };
+    return new Response("{}", { status });
+  };
+  assert.deepEqual(await checkZaiKey("826d9eK", "glm-5.3-flash", fake(200)), { ok: true, message: "Works." });
+  assert.match(seen.url, /api\.z\.ai\/api\/coding\/paas\/v4\/chat\/completions$/);
+  assert.equal(seen.init.headers.Authorization, "Bearer 826d9eK");
+  assert.deepEqual(await checkDeepseekKey("sk-d2aK", "deepseek-flash", fake(200)), { ok: true, message: "Works." });
+  assert.match(seen.url, /api\.deepseek\.com\/v1\/chat\/completions$/);
+  assert.equal(seen.init.headers.Authorization, "Bearer sk-d2aK");
 });
